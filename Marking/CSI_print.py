@@ -1,6 +1,6 @@
 import csiread
 
-csi_data = csiread.Intel("data/flip50hzR_20s_010.dat")
+csi_data = csiread.Intel("0127data/flip50hzR_20s_009.dat")
 csi_data.read()
 
 print(csi_data.csi.shape)   # (packets, Nrx, Ntx, subcarriers)
