@@ -2,58 +2,55 @@ import os
 import numpy as np
 import csiread
 import shutil
+from scipy.signal import butter, filtfilt
 
 # ================= 設定區域 =================
 # 1. 檔案路徑
-CSI_FILE_PATH = "0127data/flip50hzR_20s_010.dat"
-OUTPUT_ROOT = "Marking/dataset_output/50hz_010"  # 輸出資料夾名稱
+CSI_FILE_PATH = "data/flip50hzR_20s_001.dat"
+OUTPUT_ROOT = "dataset_output/50hz_001"  # 輸出資料夾名稱
+
 
 # 2. 切片參數 (最重要的超參數)
 WINDOW_SIZE = 200   # 視窗大小 (例如 2秒 * 100Hz = 200封包)
 STRIDE = 100        # 步長 (移動多少包切下一片，100代表重疊50%)
 
 
-# ================= 設定區域 =================
 # 3. 動作標籤定義 (格式: [標籤名, 開始封包Index, 結束封包Index])
-# 根據 PCA 運動特徵圖精確對齊生成
+# 這裡需要你根據之前的觀察，手動填入動作發生的區間
 LABEL_INTERVALS = [
-    ("noise", 0, 200),          # 躺下
-    ("flipping", 950, 1150),  
-    ("static", 1150, 1990),
-    ("flipping", 1990, 2190),  
-    ("static", 2190, 2910),
+    # 範例數據：請替換成你實際觀察到的封包位置
+    ("noise", 0, 200),  # 躺下
+    ("flipping", 1000, 1200),  # 右翻1
+    ("static", 1200, 2000),
+    ("flipping", 2000, 2200),  # 翻回1
+    ("static", 2200, 2950),
 
 
-    ("flipping", 2910, 3110),   # 右翻2
-    ("static", 3110, 3970),
-    ("flipping", 3970, 4170),   # 翻回2
-    ("static", 4170, 4980),
+    ("flipping", 2950, 3150),  # 右翻2
+    ("static", 3150, 4000),
+    ("flipping", 4000, 4200),  # 翻回2
+    ("static", 4200, 4900),
 
 
-    ("flipping", 4980, 5180),   # 右翻3
-    ("static", 5180, 5970),
-    ("flipping", 5970, 6170),   # 翻回3
-    ("static", 6170, 6910),
+    ("flipping", 4900, 5100),  # 右翻3
+    ("static", 5100, 6000),
+    ("flipping", 6000, 6200),  # 翻回3
+    ("static", 6200, 6900),
 
 
-    ("flipping", 6910, 7110),   # 右翻4
-    ("static", 7110, 8130),
-    ("flipping", 8130, 8330),   # 翻回4
-    ("static", 8330, 8870),
+    ("flipping", 6900, 7100),  # 右翻4
+    ("static", 7100, 7950),
+    ("flipping", 7950, 8150),  # 翻回4
+    ("static", 8150, 8820),
 
 
-    ("flipping", 8870, 9070),   # 右翻5
-    ("static", 9070, 9970),
-    ("flipping", 9970, 10170),  # 翻回5
-
-
-    ("static", 10170, 10856),
-    ("noise", 10856, 11056),    # 起身
+    ("flipping", 8820, 9020),  # 右翻5
+    ("static", 9020, 9950),
+    ("flipping", 9950, 10150),  # 翻回5
+    ("static", 10150, 10866),
+    ("noise", 10866, 11066),     # 起身
 ]
-
-
-
-# ===========================================
+# =========================================
 
 def load_data(path):
     """讀取 CSI 數據"""
@@ -64,67 +61,72 @@ def load_data(path):
     csi_data = csiread.Intel(path)
     csi_data.read()
     
-    # 轉為幅度 (Amplitude) 並處理形狀
-    # 原始形狀通常是 (Packets, Nrx, Ntx, Subcarriers)
-    # 我們這裡取絕對值轉為幅度，方便後續處理
+    # 轉為幅度 (Amplitude)
+    # 取第1個Tx, 第1個Rx (根據你的需求調整)
     amp = np.abs(csi_data.csi[:, :, 0, 0])
     
     print(f"原始數據形狀: {amp.shape}")
     return amp
 
-##
-from scipy.signal import butter, filtfilt
-
 def butter_lowpass_filter(data, cutoff=10, fs=100, order=5):
+    """低通濾波器"""
     nyq = 0.5 * fs
     normal_cutoff = cutoff / nyq
     b, a = butter(order, normal_cutoff, btype='low', analog=False)
-    # data shape: (packets, subcarriers)
+    # axis=0 表示沿著時間軸濾波
     y = filtfilt(b, a, data, axis=0)
     return y
 
+def normalize_data(data):
+    """
+    [新增] Min-Max 歸一化
+    將數據縮放到 0 ~ 1 之間
+    """
+    # 加上 1e-8 是為了防止分母為 0
+    d_min = data.min()
+    d_max = data.max()
+    
+    print(f"執行歸一化: Min={d_min:.4f}, Max={d_max:.4f}")
+    
+    normalized = (data - d_min) / (d_max - d_min + 1e-8)
+    return normalized
+
 def save_slices(csi_matrix, intervals, window_size, stride, output_dir):
-    """
-    核心切片函數
-    """
-    # 如果輸出目錄存在，先清空 (可選，避免舊資料混淆)
+    """核心切片函數"""
     if os.path.exists(output_dir):
         shutil.rmtree(output_dir)
     
     total_saved = 0
     
     for label, start_idx, end_idx in intervals:
-        # 1. 建立該動作的資料夾
+        # 1. 建立資料夾
         label_dir = os.path.join(output_dir, label)
         os.makedirs(label_dir, exist_ok=True)
         
-        # 2. 檢查索引邊界
+        # 2. 邊界檢查
         if start_idx < 0 or end_idx > csi_matrix.shape[0]:
-            print(f"[警告] 區間 {start_idx}-{end_idx} 超出數據範圍，跳過。")
+            print(f"[警告] 區間 {start_idx}-{end_idx} 超出範圍，跳過。")
             continue
             
-        # 3. 提取該區間的數據
+        # 3. 提取數據
         action_data = csi_matrix[start_idx:end_idx]
         
-        # 4. 執行滑動視窗切片
-        # 只有當區間長度大於視窗大小才切
+        # 4. 滑動視窗
         num_packets = action_data.shape[0]
         
         if num_packets < window_size:
-            print(f"[跳過] 動作 '{label}' 長度 ({num_packets}) 小於視窗大小 ({window_size})")
+            print(f"[跳過] 動作 '{label}' 長度 ({num_packets}) 不足")
             continue
 
         count = 0
         for i in range(0, num_packets - window_size + 1, stride):
-            # 切出一個 window
             segment = action_data[i : i + window_size]
             
-            # 檔名格式: label_原始起始點_切片序號.npy
+            # 儲存
             filename = f"{label}_{start_idx}_{count:03d}.npy"
             save_path = os.path.join(label_dir, filename)
-            
-            # 儲存
             np.save(save_path, segment)
+            
             count += 1
             total_saved += 1
             
@@ -136,14 +138,20 @@ def save_slices(csi_matrix, intervals, window_size, stride, output_dir):
 
 if __name__ == "__main__":
     try:
-        # 1. 載入數據
+        # 1. 載入原始數據
         csi_amp = load_data(CSI_FILE_PATH)
 
-        ##
-        amp_filtered = butter_lowpass_filter(csi_amp, cutoff=1, fs=50)
+        # 2. 濾波處理
+        # 注意: cutoff=1 很低，通常人體動作建議在 10Hz 左右，除非你要濾掉非常高頻的雜訊
+        print("執行濾波...")
+        amp_filtered = butter_lowpass_filter(csi_amp, cutoff=1, fs=50) # 我將cutoff改為10Hz供參考，原本是1
         
-        # 2. 執行切片與存檔
-        save_slices(csi_amp, LABEL_INTERVALS, WINDOW_SIZE, STRIDE, OUTPUT_ROOT)
+        # 3. [新增] 歸一化處理
+        # 這樣所有存下來的數據都會在 0~1 之間
+        amp_normalized = normalize_data(amp_filtered)
+
+        # 4. 執行切片與存檔 (注意這裡傳入的是 amp_normalized)
+        save_slices(amp_normalized, LABEL_INTERVALS, WINDOW_SIZE, STRIDE, OUTPUT_ROOT)
         
     except Exception as e:
         print(f"發生錯誤: {e}")
