@@ -114,7 +114,7 @@ unwrapped_phase = unwrap(sanitized_phase_2d, [], 1);
 
 %% 3. 帶通濾波 (Bandpass Filtering)
 low_cutoff = 0.1;
-high_cutoff = 0.5;
+high_cutoff = 0.2;
 [b, a] = butter(3, [low_cutoff high_cutoff] / (Fs / 2), 'bandpass');
 
 % 零相位濾波
