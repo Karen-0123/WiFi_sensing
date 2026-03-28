@@ -17,7 +17,7 @@ function [true_peak_idx, true_peak_vals] = detect_respiration_peaks(signal)
     %======================================================================
     % 2. 虛假峰值剔除 (Window-based Validation)
     % 設定 1.5 秒的驗證窗口 (包含當前點，前後共涵蓋 1.5 秒)
-    window_time = 5; 
+    window_time = 2; 
     window_samples = round(window_time * fs); % 1.5 * 200 = 300 個採樣點
     %======================================================================
     

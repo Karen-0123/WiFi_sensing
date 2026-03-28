@@ -30,7 +30,7 @@ function [best_stream_name, best_signal, best_fpsd] = select_respiration_stream(
     %======================================================================
     % 2. 帶通濾波器 (0.1 Hz ~ 0.5 Hz)
     % 使用 3 階 Butterworth 濾波器
-    [b, a] = butter(3, [0.1 0.2]/(fs/2), 'bandpass');
+    [b, a] = butter(3, [0.1 0.3]/(fs/2), 'bandpass');
     %======================================================================
     
     % 使用 filtfilt 進行零相位濾波，避免訊號發生時間偏移
@@ -80,7 +80,7 @@ function [best_stream_name, best_signal, best_fpsd] = select_respiration_stream(
     % 4. 尋找主要頻率峰值與初步過濾
     % 呼吸範圍：10 bpm ~ 37 bpm -> 約 0.167 Hz ~ 0.617 Hz
     freq_min = 5 / 60;
-    freq_max = 10 / 60;
+    freq_max = 20 / 60;
     %======================================================================
     
     [~, max_idx_amp] = max(psd_amp);

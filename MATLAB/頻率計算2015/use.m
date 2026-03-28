@@ -26,6 +26,6 @@ fprintf('步驟 5: 執行精細峰值偵測 (Window-based Validation)...\n');
 % 7. 動態 BPM 計算與繪圖 (最終步驟)
 fprintf('步驟 6: 計算動態呼吸率 (BPM)...\n');
 total_samples = length(best_sig);
-[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(peak_indices, total_samples);
+%[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(peak_indices, total_samples);
 
 fprintf('所有流程執行完畢！\n');
