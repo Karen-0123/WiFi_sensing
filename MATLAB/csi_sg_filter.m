@@ -1,139 +1,125 @@
-clear; clc; close all;
-feature('DefaultCharacterSet', 'UTF-8'); 
+function respiration_final_integrated()
+    %% Wi-Fi CSI 呼吸監測 - 全功能整合復刻版
+    clear; clc; close all;
 
-%% 1. 數據讀取與 4D 矩陣架構
-filename = 'C:\Users\Admin\OneDrive\Documents\MATLAB\WiFi_sensing\data\breathe\breathe_200hz_015.dat';
-if ~exist(filename, 'file'), error('找不到檔案，請檢查路徑！'); end
+    % 1. 設定你的檔案路徑 (已更新為你的路徑)
+    filename = 'C:\Users\Admin\OneDrive\Documents\MATLAB\WiFi_sensing\data\breathe\breathe_200hz_015.dat';
+    fs = 200; 
 
-csi_trace = read_bf_file(filename);
-Fs = 200; 
-N_total = length(csi_trace);
-fprintf('1. 讀取封包總數: %d\n', N_total);
+    % 2. 執行處理流程
+    fprintf('步驟 1: 正在讀取資料...\n');
+    [csi_matrix] = read_intel5300_dat(filename);
 
-% 預配置 (N, 30, 2, 3)
-csi_matrix_temp = zeros(N_total, 30, 2, 3);
-valid_count = 0;
-for i = 1:N_total
-    if ~isempty(csi_trace{i})
-        csi = get_scaled_csi(csi_trace{i});
-        if size(csi, 1) == 2 && size(csi, 2) == 3 && size(csi, 3) == 30
-            valid_count = valid_count + 1;
-            csi_matrix_temp(valid_count, :, :, :) = permute(csi, [3, 1, 2]);
+    fprintf('步驟 2: 處理訊號 (消除相位偏移與 SG 濾波)...\n');
+    [amp_filtered, phase_filtered] = process_csi_signal(csi_matrix);
+
+    fprintf('步驟 3: 執行帶通濾波 (0.1-0.2 Hz) 與特徵選擇...\n');
+    [best_name, best_sig] = select_respiration_stream(amp_filtered, phase_filtered, fs);
+
+    fprintf('步驟 4: 執行精細峰值偵測 (True vs False Peaks)...\n');
+    [p_idx, p_val, c_idx, c_val] = detect_respiration_peaks_classic(best_sig, fs);
+
+    fprintf('步驟 5: 計算動態呼吸率 (BPM)...\n');
+    [bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(p_idx, length(best_sig), fs);
+
+    %% 3. 整合視覺化 (確保圖表與舊圖一模一樣)
+    hFig = figure('Name', 'CSI Respiration Result', 'Color', 'w', 'Position', [100, 100, 900, 750]);
+    t_sig = (0:length(best_sig)-1)/fs;
+
+    % --- 子圖 1: 呼吸波形與峰值偵測 (對標 Figure 2) ---
+    subplot(2, 1, 1);
+    plot(t_sig, best_sig, 'b', 'LineWidth', 1.5); hold on;
+    % 畫出灰色小叉叉 (False Peaks)
+    plot(c_idx/fs, c_val, 'x', 'Color', [0.6 0.6 0.6], 'MarkerSize', 7);
+    % 畫出紅色圓點 (True Peaks)
+    plot(p_idx/fs, p_val, 'ro', 'MarkerFaceColor', 'r', 'MarkerSize', 7);
+    
+    title(['[1] Respiration Waveform (Source: ', best_name, ') - Window-based Validation'], 'FontWeight', 'bold');
+    ylabel('Amplitude'); grid on;
+    legend('Filtered Signal', 'False Peaks', 'True Peaks', 'Location', 'northeast');
+
+    % --- 子圖 2: 動態呼吸率 (BPM 曲線) ---
+    subplot(2, 1, 2);
+    avg_bpm = nanmean(bpm_timeline);
+    % 綠色點線圖 (對標舊圖樣式)
+    plot(time_axis_bpm, bpm_timeline, '-s', 'Color', [0.2 0.7 0.2], 'LineWidth', 1.5, 'MarkerSize', 4, 'MarkerFaceColor', 'w');
+    hold on;
+    % 紅色虛線平均值基準線 (相容 2015 版)
+    plot([0 t_sig(end)], [avg_bpm avg_bpm], 'r--', 'LineWidth', 2);
+    
+    title(sprintf('[2] Dynamic Respiration Rate (Average: %.1f BPM)', avg_bpm), 'FontWeight', 'bold');
+    xlabel('Time (seconds)'); ylabel('BPM'); ylim([5 35]); grid on;
+    text(t_sig(end)*0.85, avg_bpm+2, ['Avg: ', num2str(round(avg_bpm,1))], 'Color', 'r', 'FontWeight', 'bold');
+
+    fprintf('所有流程執行完畢！整合圖表已產出。\n');
+end
+
+% =========================================================================
+% 下方為整合的功能函式區
+% =========================================================================
+
+function [csi_matrix] = read_intel5300_dat(filename)
+    try
+        csi_trace = read_bf_file(filename);
+    catch
+        error('找不到 read_bf_file.m，請確認已加入路徑！');
+    end
+    N = length(csi_trace);
+    csi_matrix = zeros(N, 30, 2, 3);
+    v = 0;
+    for i = 1:N
+        entry = csi_trace{i};
+        if isempty(entry) || ~isfield(entry, 'csi'), continue; end
+        v = v + 1;
+        csi_matrix(v, :, 1:size(entry.csi,1), 1:size(entry.csi,2)) = permute(entry.csi, [3, 1, 2]);
+    end
+    csi_matrix = csi_matrix(1:v, :, :, :);
+end
+
+function [amp_f, phase_f] = process_csi_signal(csi_matrix)
+    c1 = squeeze(csi_matrix(:,:,1,1)); 
+    c2 = squeeze(csi_matrix(:,:,1,2));
+    cj = c1 .* conj(c2);
+    amp_f = sgolayfilt(abs(cj), 3, 31);
+    phase_f = sgolayfilt(unwrap(angle(cj)), 3, 31);
+end
+
+function [best_name, best_signal] = select_respiration_stream(amp_f, ph_f, fs)
+    % Z-score 歸一化 (2015 兼容版)
+    an = bsxfun(@rdivide, bsxfun(@minus, amp_f, mean(amp_f)), std(amp_f));
+    pn = bsxfun(@rdivide, bsxfun(@minus, ph_f, mean(ph_f)), std(ph_f));
+    a1 = mean(an, 2); p1 = mean(pn, 2);
+    % 帶通濾波器 (0.1-0.2 Hz)
+    [b, a] = butter(3, [0.1 0.2]/(fs/2), 'bandpass');
+    as = filtfilt(b, a, a1); ps = filtfilt(b, a, p1);
+    if var(as) >= var(ps), best_name = 'Amplitude'; best_signal = as; 
+    else best_name = 'Phase'; best_signal = ps; end
+end
+
+function [p_idx, p_val, c_idx, c_val] = detect_respiration_peaks_classic(signal, fs)
+    % 取得所有候選點 (灰色叉叉)
+    [c_val, c_idx] = findpeaks(signal);
+    win = round(1.5 * fs);
+    p_idx = []; p_val = [];
+    % 驗證真點 (紅色圓點)
+    for i = 1:length(c_idx)
+        curr = c_idx(i);
+        r = max(1, curr-floor(win/2)):min(length(signal), curr+floor(win/2));
+        if signal(curr) >= max(signal(r))
+            p_idx(end+1) = curr; p_val(end+1) = signal(curr);
         end
     end
 end
-csi_matrix = csi_matrix_temp(1:valid_count, :, :, :);
-N = valid_count;
-t_full = (0:N-1) / Fs; 
 
-%% 2. 共軛乘法 (CM) 與 複數 S-G 濾波
-H1 = csi_matrix(:, :, 1, :); 
-H2 = csi_matrix(:, :, 2, :); 
-csi_cm = H1 .* conj(H2); 
-
-sg_order = 3;
-sg_framelen = 41; 
-csi_cm_smoothed = zeros(size(csi_cm));
-for tx = 1:3
-    temp_data = squeeze(csi_cm(:, :, 1, tx));
-    csi_cm_smoothed(:, :, 1, tx) = sgolayfilt(temp_data, sg_order, sg_framelen, [], 1);
-end
-
-%% 3. 提取振幅 (Amplitude) 與 帶通濾波 (核心修改：0.1~0.2Hz)
-amp_data = abs(csi_cm_smoothed(:, :, 1, :));
-amp_flatten = reshape(amp_data, N, 90);
-
-% 修改濾波範圍為 0.1 ~ 0.2 Hz (對應 6 ~ 12 BPM)
-f_low = 0.1; 
-f_high = 0.2;
-[b, a] = butter(3, [f_low f_high] / (Fs / 2), 'bandpass');
-amp_filtered = filtfilt(b, a, amp_flatten);
-
-% PCA 提取呼吸主成分
-[~, score, ~] = pca(zscore(amp_filtered));
-breathing_signal_raw = score(:, 1);
-
-%% 4. 數值計算預處理 (裁切邊緣效應與 Detrend)
-clip = 15 * Fs; 
-t_clean = t_full(clip:end-clip);
-sig_clean = detrend(breathing_signal_raw(clip:end-clip)); 
-N_clean = length(sig_clean);
-
-%% 5. 計算 BPM
-% --- 方法一：FFT 頻譜分析 ---
-L = N_clean;
-Y = fft(sig_clean);
-P2 = abs(Y/L);
-P1 = P2(1:floor(L/2)+1);
-P1(2:end-1) = 2*P1(2:end-1);
-f = Fs*(0:(L/2))/L;
-
-% 同步修改搜尋索引範圍，確保與濾波器一致
-res_idx = (f >= f_low & f <= f_high); 
-[~, max_idx] = max(P1(res_idx));
-peak_freq_range = f(res_idx);
-BPM_fft = peak_freq_range(max_idx) * 60;
-
-% --- 方法二：方波計數 ---
-square_wave = sig_clean > 0;
-raw_edges = find(diff(square_wave) > 0); 
-% 最小間隔設為 2.5s (對應 0.2Hz 的半週期) 是合理的，能防止雜訊重複計數
-min_dist = 2.5 * Fs; 
-valid_edges = [];
-if ~isempty(raw_edges)
-    valid_edges = raw_edges(1);
-    for k = 2:length(raw_edges)
-        if (raw_edges(k) - valid_edges(end)) > min_dist
-            valid_edges = [valid_edges; raw_edges(k)];
-        end
+function [bpm, t_bpm] = calculate_dynamic_bpm(p_idx, total_samples, fs)
+    tp = p_idx / fs;
+    win = 20; step = 1;
+    t_s = 0:step:(total_samples/fs - win);
+    bpm = zeros(1, length(t_s)); t_bpm = zeros(1, length(t_s));
+    for i = 1:length(t_s)
+        ts = t_s(i); te = ts + win; t_bpm(i) = ts + win/2;
+        p_in = tp(tp >= ts & tp <= te);
+        if length(p_in) >= 2, bpm(i) = 60 / mean(diff(p_in));
+        else bpm(i) = NaN; end
     end
 end
-BPM_square = length(valid_edges) / ((t_clean(end)-t_clean(1))/60);
-
-%% ---------------------------------------------------------
-%% 6. 圖表1：訊號提取驗證
-%% ---------------------------------------------------------
-figure('Color', 'k', 'Name', '訊號提取過程驗證', 'Position', [100 100 900 600]);
-
-subplot(2,1,1);
-plot(t_full, amp_filtered, 'LineWidth', 0.5); 
-title(['帶通濾波後的振幅通道 (', num2str(f_low), '-', num2str(f_high), ' Hz)'], 'Color', 'w');
-xlabel('時間 (秒)', 'Color', 'w'); ylabel('幅度', 'Color', 'w');
-set(gca, 'Color', 'k', 'XColor', 'w', 'YColor', 'w', 'GridColor', 'w');
-grid on; xlim([0 t_full(end)]);
-
-subplot(2,1,2);
-plot(t_full, breathing_signal_raw, 'Color', [0 0.8 0], 'LineWidth', 2);
-title('PCA 提取出的呼吸波形 (第一主成分)', 'Color', 'w');
-xlabel('時間 (秒)', 'Color', 'w'); ylabel('PCA Score', 'Color', 'w');
-set(gca, 'Color', 'k', 'XColor', 'w', 'YColor', 'w', 'GridColor', 'w');
-grid on; xlim([0 t_full(end)]);
-
-%% ---------------------------------------------------------
-%% 7. 圖表2：BPM 報告
-%% ---------------------------------------------------------
-figure('Color', 'w', 'Name', 'BPM 數值分析報告', 'Position', [1000 100 800 900]);
-
-subplot(3,1,1);
-plot(t_clean, sig_clean, 'b', 'LineWidth', 1.5); hold on;
-plot(t_clean(valid_edges), sig_clean(valid_edges), 'ro', 'MarkerFaceColor', 'r');
-title(['呼吸波形校正 (BPM_Square: ', num2str(round(BPM_square,2)), ')']);
-ylabel('幅度'); grid on;
-
-subplot(3,1,2);
-stairs(t_clean, square_wave, 'r', 'LineWidth', 1.2);
-title('呼吸方波邏輯 (抗噪計數)');
-ylim([-0.5 1.5]); grid on;
-
-subplot(3,1,3);
-plot(f, P1, 'k', 'LineWidth', 1.2); hold on;
-plot(peak_freq_range(max_idx), P1(f==peak_freq_range(max_idx)), 'rp', 'MarkerSize', 12, 'MarkerFaceColor', 'r');
-xlim([0 0.5]); % 縮小顯示範圍至 0.5Hz，看得更清楚
-title(['FFT 頻譜分析 (BPM_FFT: ', num2str(round(BPM_fft,2)), ')']);
-xlabel('頻率 (Hz)'); grid on;
-
-fprintf('\n--- 最終驗證報告 ---\n');
-fprintf('濾波器設定: %.2f - %.2f Hz\n', f_low, f_high);
-fprintf('FFT 計算結果: %.2f BPM\n', BPM_fft);
-fprintf('方波計數結果: %.2f BPM\n', BPM_square);
-fprintf('絕對誤差: %.2f BPM\n', abs(BPM_fft - BPM_square));
