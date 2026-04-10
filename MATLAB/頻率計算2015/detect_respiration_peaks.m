@@ -17,7 +17,7 @@ function [true_peak_idx, true_peak_vals] = detect_respiration_peaks(signal)
     %======================================================================
     % 2. 虛假峰值剔除 (Window-based Validation)
     % 設定 1.5 秒的驗證窗口 (包含當前點，前後共涵蓋 1.5 秒)
-    window_time = 2; 
+    window_time = 5; 
     window_samples = round(window_time * fs); % 1.5 * 200 = 300 個採樣點
     %======================================================================
     
@@ -59,19 +59,19 @@ function [true_peak_idx, true_peak_vals] = detect_respiration_peaks(signal)
     plot(time_axis(candidate_locs), candidate_pks, 'x', 'Color', [0.6 0.6 0.6], 'MarkerSize', 6);
 
     % 畫出剔除後的「實際呼吸頂點」(用明顯的紅點標示)
-    plot(time_axis(true_peak_idx), true_peak_vals, 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
-
-    title('呼吸波形與精細峰值偵測 (Window-based Validation)', 'FontSize', 14, 'FontWeight', 'bold');
-    xlabel('時間 (秒)', 'FontSize', 12);
-    ylabel('特徵訊號振幅', 'FontSize', 12);
-    
-    % 設定圖例 (Legend)
-    legend('呼吸時域訊號', '被剔除的虛假峰值 (False Peaks)', '有效呼吸頂點 (True Peaks)', ...
-           'Location', 'northeast', 'FontSize', 10);
-    
-    grid on;
-    axis tight;
-    hold off;
+%     plot(time_axis(true_peak_idx), true_peak_vals, 'ro', 'MarkerSize', 8, 'MarkerFaceColor', 'r');
+% 
+%     title('呼吸波形與精細峰值偵測 (Window-based Validation)', 'FontSize', 14, 'FontWeight', 'bold');
+%     xlabel('時間 (秒)', 'FontSize', 12);
+%     ylabel('特徵訊號振幅', 'FontSize', 12);
+%     
+%     % 設定圖例 (Legend)
+%     legend('呼吸時域訊號', '被剔除的虛假峰值 (False Peaks)', '有效呼吸頂點 (True Peaks)', ...
+%            'Location', 'northeast', 'FontSize', 10);
+%     
+%     grid on;
+%     axis tight;
+%     hold off;
 
     % 在終端機印出處理結果
     fprintf('峰值偵測完成！初步找到 %d 個候選峰值，經 1.5 秒窗口剔除後，保留 %d 個有效呼吸頂點。\n', ...

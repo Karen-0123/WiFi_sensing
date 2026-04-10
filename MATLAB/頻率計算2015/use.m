@@ -2,7 +2,7 @@
 clear; clc; close all;
 
 % 1. 設定你的 .dat 檔案路徑 (請替換為你實際的檔案名稱)
-filename = 'C:\Users\fupei\Desktop\csi\data\breathe\breathe_200hz_015.dat'; 
+filename = 'D:\大學資料\WiFi_sensing\data\test\nothing_right_left_up_down_002.dat'; 
 %filename = 'C:\Users\fupei\Desktop\csi\data\test\nothing_right_left_up_down_002.dat'; 
 
 % 2. 讀取與過濾原始資料
@@ -26,6 +26,10 @@ fprintf('步驟 5: 執行精細峰值偵測 (Window-based Validation)...\n');
 % 7. 動態 BPM 計算與繪圖 (最終步驟)
 fprintf('步驟 6: 計算動態呼吸率 (BPM)...\n');
 total_samples = length(best_sig);
-%[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(peak_indices, total_samples);
+[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(peak_indices, total_samples);
 
+% 8. 執行滑動視窗睡眠分期 (新增)
+[stage_history, stage_time] = classify_sleep_timeline(bpm_timeline, time_axis_bpm);
+
+fprintf('======================================\n');
 fprintf('所有流程執行完畢！\n');

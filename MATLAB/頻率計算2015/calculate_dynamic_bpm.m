@@ -74,12 +74,12 @@ function [bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, to
         title('動態呼吸率變化曲線 (無有效資料)', 'FontSize', 14, 'FontWeight', 'bold');
     end
     
-    xlabel('時間 (秒) - 窗口中心點', 'FontSize', 12);
-    ylabel('呼吸率 (BPM)', 'FontSize', 12);
-    
-    % 設定 Y 軸合理的顯示範圍 (例如人類正常與劇烈呼吸約落在 5 到 45 之間)
-    ylim([5 45]);
-    grid on;
+%     xlabel('時間 (秒) - 窗口中心點', 'FontSize', 12);
+%     ylabel('呼吸率 (BPM)', 'FontSize', 12);
+%     
+%     % 設定 Y 軸合理的顯示範圍 (例如人類正常與劇烈呼吸約落在 5 到 45 之間)
+%     ylim([5 45]);
+%     grid on;
     
     fprintf('BPM 計算完成！成功產出隨時間變化的呼吸率曲線。\n');
 end

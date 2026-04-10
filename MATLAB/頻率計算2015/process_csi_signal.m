@@ -59,7 +59,7 @@ function [amp_filtered, phase_filtered] = process_csi_signal(csi_matrix)
     amp_filtered = amp_raw;
     phase_filtered = phase_raw;
 
-    % time_axis = (0:N-1) / 200;
+    time_axis = (0:N-1) / 200;
     % % % 上方圖形：SG濾波後的振幅隨時間變化
     % subplot(2, 1, 1);
     % plot(time_axis, amp_filtered, 'b', 'LineWidth', 1.2);
@@ -69,14 +69,14 @@ function [amp_filtered, phase_filtered] = process_csi_signal(csi_matrix)
     % grid on; axis tight;
     % legend('Amplitude Stream', 'Location', 'northeast');
     % 
-    % % % 下方圖形：SG濾波後的相位隨時間變化
-    % subplot(2, 1, 2);
-    % plot(time_axis, phase_filtered, 'r', 'LineWidth', 1.2);
-    % title(sprintf('相位特徵 (SG濾波)'));
-    % xlabel('時間 (秒)');
-    % ylabel('相位變化量');
-    % grid on; axis tight;
-    % legend('Phase Stream', 'Location', 'northeast');
+    % % 下方圖形：SG濾波後的相位隨時間變化
+%     subplot(2, 1, 2);
+%     plot(time_axis, phase_filtered, 'r', 'LineWidth', 1.2);
+%     title(sprintf('相位特徵 (SG濾波)'));
+%     xlabel('時間 (秒)');
+%     ylabel('相位變化量');
+%     grid on; axis tight;
+%     legend('Phase Stream', 'Location', 'northeast');
 
     fprintf('訊號處理完成！已完成共軛相乘與 SG 濾波 (視窗:%d, 階數:%d)。\n', window_length, poly_order);
 end
