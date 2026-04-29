@@ -1,2 +1,8 @@
+# Python 環境設定
+venv/
+.venv/
+__pycache__/
+
+# 忽略實驗數據
 *.dat
 data/
