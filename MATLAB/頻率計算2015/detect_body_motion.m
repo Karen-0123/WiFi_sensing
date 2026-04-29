@@ -37,7 +37,7 @@ function [motion_stat, motion_flags, time_axis_motion] = detect_body_motion(amp_
     % 取整段訊號的中位數作為「安靜時的基準雜訊」，乘上一個倍數作為大動作門檻
     % 論文中通常使用 MAD (中位數絕對偏差) 或經驗倍數，這裡使用 5 倍中位數
     baseline_noise = median(motion_stat);
-    threshold = baseline_noise * 5; 
+    threshold = baseline_noise * 3; 
     
     % 產出 0 與 1 的二值化陣列 (1 代表有大動作)
     motion_flags = motion_stat > threshold;
