@@ -35,7 +35,7 @@ MOCK_LOGS = [
 
 def run_test():
     print("=" * 55)
-    print("  WiFi CSI 睡眠監測系統 — 資料庫完整流程測試")
+    print("   WiFi CSI 睡眠監測系統 — 資料庫完整流程測試")
     print("=" * 55)
 
     # ── 階段 0：初始化資料庫 ──────────────────────────
@@ -46,31 +46,35 @@ def run_test():
     print("\n【階段 1】建立測試使用者")
     with get_db() as conn:
 
-        # 避免重複執行時報錯，先檢查是否已存在
+        # --- 這裡是修改重點：將帳號名稱設為 Gmail 格式 ---
+        target_username = 'test_user@gmail.com' 
+
+        # 檢查該 Gmail 帳號是否已經存在於資料庫
         existing = conn.execute(
-            "SELECT id FROM users WHERE username = 'test_user'"
+            "SELECT id FROM users WHERE username = ?", (target_username,)
         ).fetchone()
 
         if existing:
             user_id = existing["id"]
-            print(f"   使用者已存在，user_id = {user_id}")
+            print(f"   使用者已存在，user_id = {user_id} (帳號: {target_username})")
         else:
+            # 如果不存在，則建立一筆新的 test@gmail.com
             cursor = conn.execute("""
                 INSERT INTO users (username, display_name, wake_preference)
-                VALUES ('test_user', '測試用戶', '{"window_min": 30}')
-            """)
+                VALUES (?, '測試用戶', '{"window_min": 30}')
+            """, (target_username,))
             user_id = cursor.lastrowid
-            print(f"   ✅ 使用者建立成功，user_id = {user_id}")
+            print(f"   ✅ 使用者建立成功，帳號：{target_username}")
 
     # ── 階段 2：建立睡眠 Session ──────────────────────
     print("\n【階段 2】建立睡眠 Session")
-    started_at = datetime(2026, 5, 9, 23, 0, 0)  # 晚上 11 點開始監測
+    # 這裡的時間改為現在，這樣網頁比較好抓資料
+    started_at = datetime.now() - timedelta(hours=8)
     session_id = create_session(
         user_id    = user_id,
         started_at = started_at,
-        date       = "2026-05-09",
+        date       = started_at.strftime("%Y-%m-%d"),
     )
-
     # ── 階段 3：模擬寫入 10 筆呼吸數據 ───────────────
     print(f"\n【階段 3】寫入 {len(MOCK_LOGS)} 筆呼吸數據（模擬 MATLAB 傳入）")
     print(f"   {'#':<4} {'時間':<22} {'呼吸率':>6} {'訊號':>6} {'階段':<8} {'異常'}")

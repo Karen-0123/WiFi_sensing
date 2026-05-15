@@ -1,0 +1,150 @@
+/* ==========================================
+   1. 通用基礎樣式 (Global)
+   ========================================== */
+* { 
+    box-sizing: border-box; 
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+}
+
+body, html { 
+    height: 100%; 
+    margin: 0; 
+    font-family: 'Inter', -apple-system, "SF Pro Text", "PingFang TC", sans-serif; 
+}
+
+a { text-decoration: none; }
+
+/* ==========================================
+   2. 首頁專屬樣式 (.pg-index)
+   ========================================== */
+.pg-index { background-color: #fff; color: #333; line-height: 1.6; }
+
+.pg-index .hero-section {
+    background-color: #0a192f; /* 深藍色背景 */
+    height: 85vh;
+    display: flex;
+    align-items: center;
+    padding: 0 10%;
+    color: #fff;
+}
+
+.pg-index .hero-content h1 {
+    font-size: 3.5rem; margin-bottom: 1rem; line-height: 1.1;
+}
+
+.pg-index .hero-content p {
+    font-size: 1.2rem; color: #8892b0; max-width: 600px; margin-bottom: 2.5rem;
+}
+
+.pg-index .start-btn {
+    padding: 16px 40px; background: #fff; color: #0a192f; 
+    border-radius: 8px; font-weight: 700; display: inline-block;
+}
+
+.pg-index .start-btn:hover { background: #4a90e2; color: #fff; transform: translateY(-3px); }
+
+.pg-index .feature-card {
+    padding: 40px; border: 1px solid #eee; border-radius: 20px;
+    background: #fff;
+}
+
+/* ==========================================
+   3. 登入/儀表板 通用佈局 (Flex Center)
+   ========================================== */
+.flex-center-body {
+    display: flex; justify-content: center; align-items: center;
+    min-height: 100vh; background-color: #f8f9fb;
+}
+
+/* 核心白色卡片容器 */
+.main-card {
+    width: 100%; max-width: 420px; background: white; border-radius: 28px;
+    padding: 60px 45px; position: relative; 
+    box-shadow: 0 20px 60px rgba(0,0,0,0.06); text-align: center;
+}
+
+/* 儀表板寬度加大 */
+.card-wide { max-width: 850px; }
+
+/* ==========================================
+   4. 登入/註冊 專屬樣式 (.pg-login)
+   ========================================== */
+.pg-login h2 { font-size: 1.8rem; font-weight: 700; margin-bottom: 10px; color: #111; }
+.pg-login .subtitle { color: #888; font-size: 0.95rem; margin-bottom: 35px; }
+
+.pg-login .input-group input {
+    width: 100%; padding: 14px 18px; margin-bottom: 15px;
+    border: 1px solid #eee; border-radius: 12px; background: #f9f9f9;
+    font-size: 1rem;
+}
+
+.pg-login .input-group input:focus {
+    background: #fff; border-color: #000; outline: none;
+}
+
+.pg-login .black-btn {
+    width: 100%; padding: 15px; background: #000; color: #fff;
+    border: none; border-radius: 12px; font-size: 1rem; font-weight: 600;
+    cursor: pointer; margin-top: 10px;
+}
+
+.pg-login .divider {
+    font-size: 0.7rem; color: #bbb; letter-spacing: 1px;
+    margin: 25px 0; display: flex; align-items: center;
+}
+.pg-login .divider::before, .pg-login .divider::after {
+    content: ""; flex: 1; height: 1px; background: #eee; margin: 0 15px;
+}
+
+/* Google 按鈕修正：確保不被吃掉 */
+.pg-login .g_id_signin {
+    width: 100%; display: flex; justify-content: center; min-height: 40px;
+}
+
+.pg-login .error-msg { color: #e74c3c; font-size: 0.85rem; margin-top: 15px; min-height: 1.2rem; }
+
+/* ==========================================
+   5. 儀表板 專屬樣式 (.pg-dashboard)
+   ========================================== */
+.pg-dashboard .device-status { position: absolute; top: 40px; left: 45px; display: flex; align-items: center; font-size: 14px; font-weight: 600; color: #333; }
+.pg-dashboard .status-dot { width: 10px; height: 10px; background: #00ff88; border-radius: 50%; margin-right: 10px; box-shadow: 0 0 10px rgba(0,255,136,0.5); }
+
+/* 右上角使用者與登出 */
+.pg-dashboard .user-info-box { position: absolute; top: 40px; right: 45px; text-align: right; }
+.pg-dashboard .user-account { color: #666; font-size: 13px; font-family: monospace; display: block; margin-bottom: 4px; }
+.pg-dashboard .logout-link { color: #e74c3c; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+
+.pg-dashboard h2.title { font-size: 26px; font-weight: 800; margin-top: 20px; color: #111; }
+
+/* 圓環設計 */
+.circle-container { position: relative; width: 280px; height: 280px; margin: 40px auto; }
+.circle-svg { transform: rotate(-90deg); width: 280px; height: 280px; }
+.circle-bg { fill: none; stroke: #f2f2f2; stroke-width: 12; }
+.circle-progress { 
+    fill: none; stroke: #00ff88; stroke-width: 12; stroke-linecap: round; 
+    stroke-dasharray: 754; transition: stroke-dashoffset 1.5s ease; 
+}
+.score-num { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 85px; font-weight: 900; color: #111; letter-spacing: -3px; }
+
+/* View More Details 按鈕 (質感優化) */
+.pg-dashboard .details-btn {
+    margin-top: 45px;
+    padding: 15px 50px;
+    background: #000;
+    color: #fff;
+    border: none;
+    border-radius: 14px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+}
+
+.pg-dashboard .details-btn:hover {
+    background: #333;
+    transform: translateY(-3px);
+    box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+}
+
+.pg-dashboard .score-label { font-size: 20px; font-weight: 700; margin-top: 10px; color: #111; }
+.pg-dashboard .score-desc { color: #999; font-size: 14px; margin-top: 8px; }

@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>Sleep Monitoring - Sign In</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body class="pg-login flex-center-body">
+    <div class="main-card">
+        <h2 id="title">Login</h2>
+        <p class="subtitle" id="desc">Enter your email to access your dashboard</p>
+        
+        <form id="loginForm">
+            <div class="input-group">
+                <input type="email" name="username" placeholder="name@gmail.com" required>
+                <input type="password" name="password" placeholder="Password" required>
+            </div>
+            <button type="submit" class="black-btn" id="submitBtn">Login</button>
+            <input type="hidden" id="action" value="login">
+        </form>
+
+        <div class="divider">OR CONTINUE WITH</div>
+        
+        <div id="g_id_onload" data-client_id="YOUR_ID" data-callback="handleCredentialResponse"></div>
+        <div class="g_id_signin" data-type="standard" data-width="320"></div>
+        
+        <p style="margin-top:25px; font-size:0.85rem;">
+            <span id="switchText">Don't have an account?</span> 
+            <a href="javascript:void(0)" id="toggleBtn" style="color:#000; font-weight:700;">Create one</a>
+        </p>
+        <div id="message" class="error-msg"></div>
+    </div>
+    <script src="login.js"></script>
+</body>
+</html>
