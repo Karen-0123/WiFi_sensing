@@ -58,7 +58,6 @@ for i = 1:num_files
         
         % 合併體動偵測結果
         all_motion_flags = [all_motion_flags, m_flags];
-        col_m_flags = m_flags(:); % 確保後續對齊使用
         all_motion_time = [all_motion_time, m_time + current_offset];
         
         % 更新下一區段的起始時間偏移 (假設採樣率 200Hz)
@@ -121,38 +120,3 @@ fprintf('清醒 (Awake): %.1f%%\n', sum(sleep_stages==3)/total_ep*100);
 fprintf('快速動眼期 (REM): %.1f%%\n', sum(sleep_stages==2)/total_ep*100);
 fprintf('淺眠 (Core): %.1f%%\n', sum(sleep_stages==1)/total_ep*100);
 fprintf('深眠 (Deep): %.1f%%\n', sum(sleep_stages==0)/total_ep*100);
-
-
-
-% 專題新增：將真實運作數據自動匯出為CSV 檔
-
-fprintf('\n【資料庫連接階段】正在產生資料庫匯入檔...\n');
-
-% 1. 取得演算法預測結果的基準長度（通常 sleep_stages 最短，用它當作 N）
-N = length(sleep_stages); 
-
-% 2. 安全切齊所有長度，並利用 (:) 強制轉為直向行向量 (Column Vector)
-col_bpm     = all_bpm(1:N);
-col_bpm     = col_bpm(:); 
-
-col_stages  = sleep_stages(1:N);
-col_stages  = col_stages(:);
-
-col_motion  = all_motion_flags(1:N);
-col_motion  = col_motion(:);
-
-% 訊號品質預設填 1.0 (之後有需要可以串接子載波的信噪比或訊號強度)
-col_quality = ones(N, 1); 
-
-% 3. 將四個直向向量結合成一個 N x 4 的大型數據矩陣
-output_matrix = [col_bpm, col_quality, col_stages, col_motion];
-
-% 4. 將資料夾路徑與檔名結合，確保 CSV 輸出在跟資料檔案同一個位置，方便 Python 讀取
-output_csv_path = fullfile(data_folder, 'real_breathing_output.csv');
-
-% 5. 寫入 CSV 檔案
-csvwrite(output_csv_path, output_matrix);
-
-fprintf('真實監測數據已成功轉置！\n');
-fprintf('檔案位置: %s\n', output_csv_path);
-fprintf('提示：現Python 腳本讀取這個 CSV 檔案匯入 sleep.db 囉！\n');
