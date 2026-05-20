@@ -2,7 +2,7 @@
 session_start();
 
 // 1. 先初始化變數，防止 Undefined variable 警告
-$email = $_SESSION['email'] ?? 'Guest'; 
+$email = $_SESSION['email'] ?? 'Guest'; // 如果沒 Session 就顯示訪客
 $score = null; 
 
 // 檢查是否登入
@@ -25,14 +25,10 @@ try {
         
         if ($data) {
             $score = floatval($data['sleep_score']);
-            
-            // ✨【規格修正】：如果後端算出的是百分制（如 60 分），自動除以 10 符合圓環 10 分制
-            if ($score > 10) {
-                $score = round($score / 10, 1);
-            }
         }
     }
 } catch (Exception $e) {
+    // 發生錯誤時 score 保持為 null，不報錯
     error_log($e->getMessage());
 }
 ?>
