@@ -1,8 +1,8 @@
 <?php
 session_start();
 
-// 1. 先初始化變數，防止 Undefined variable 警告
-$email = $_SESSION['email'] ?? 'Guest'; // 如果沒 Session 就顯示訪客
+// 1. 初始化變數，防止 Undefined variable 警告
+$email = $_SESSION['email'] ?? 'Guest'; 
 $score = null; 
 
 // 檢查是否登入
@@ -11,25 +11,34 @@ if (!isset($_SESSION['user_id'])) {
     exit();
 }
 
-$db_path = '../sleep.db';
+// Aiven 雲端資料庫設定
+$host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
+$port = 21225;
+$db_name = 'defaultdb';
+$username_db = 'avnadmin';
+$password_db = 'AVNS_NiPQssShIbu0Shs-vYB';
 
 try {
-    // 2. 嘗試從資料庫抓取數據
-    if (file_exists($db_path)) {
-        $db = new PDO("sqlite:$db_path");
-        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+  
+    $dsn = "mysql:host=$host;port=$port;dbname=$db_name;charset=utf8mb4";
+    $options = [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false, // 🛡️ 寬鬆凭证盾牌，消滅 XAMPP 500 錯誤
+        PDO::MYSQL_ATTR_SSL_COMMAND => 'SET NAMES utf8mb4'
+    ];
+    $db = new PDO($dsn, $username_db, $password_db, $options);
 
-        $stmt = $db->prepare("SELECT sleep_score FROM sleep_summaries WHERE user_id = ? ORDER BY id DESC LIMIT 1");
-        $stmt->execute([$_SESSION['user_id']]);
-        $data = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if ($data) {
-            $score = floatval($data['sleep_score']);
-        }
+    // 2. 從 Aiven 抓取該登入用戶最新的一筆睡眠分數
+    $stmt = $db->prepare("SELECT sleep_score FROM sleep_summaries WHERE user_id = ? ORDER BY id DESC LIMIT 1");
+    $stmt->execute([$_SESSION['user_id']]);
+    $data = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($data) {
+        $score = floatval($data['sleep_score']);
     }
 } catch (Exception $e) {
-    // 發生錯誤時 score 保持為 null，不報錯
-    error_log($e->getMessage());
+    // 發生錯誤時 score 保持為 null，不報錯，並把真實錯誤記在後台
+    error_log("Aiven DB Error in dashboard.php: " . $e->getMessage());
 }
 ?>
 <!DOCTYPE html>

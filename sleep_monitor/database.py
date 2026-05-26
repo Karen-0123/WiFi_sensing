@@ -1,24 +1,25 @@
-# database.py
-import sqlite3
-import os
+#database.py
+import pymysql
 from contextlib import contextmanager
 
-# 資料庫檔案路徑
-DB_PATH = os.path.join(os.path.dirname(__file__), "sleep.db")
+# MySQL 連線設定
+DB_CONFIG = {
+    "host": "mysql-46cb3ab-ntou-project.h.aivencloud.com",
+    "port": 21225,
+    "user": "avnadmin",
+    "password": "AVNS_NiPQqsShIbu0Shs-vYB",
+    "database": "defaultdb",
+    "charset": "utf8mb4",
+    "cursorclass": pymysql.cursors.DictCursor,
+    "ssl": {"ssl_mode": "REQUIRED"}  
+}
 
 
-def get_connection() -> sqlite3.Connection:
+def get_connection():
     """
-    建立並回傳一個 SQLite 連線物件。
-    - detect_types：讓 sqlite3 自動將欄位轉換成 Python 原生型別（如 datetime）
-    - row_factory：讓查詢結果可以用欄位名稱存取，而不是只能用 index
+    建立並回傳一個 MySQL 連線物件。
     """
-    conn = sqlite3.connect(
-        DB_PATH,
-        detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES
-    )
-    conn.row_factory = sqlite3.Row  # 結果可用 row["欄位名"] 存取
-    conn.execute("PRAGMA foreign_keys = ON")  # 啟用外鍵約束（SQLite 預設關閉）
+    conn = pymysql.connect(**DB_CONFIG)
     return conn
 
 
@@ -26,38 +27,36 @@ def get_connection() -> sqlite3.Connection:
 def get_db():
     """
     Context manager 版本的連線管理器。
-    用法：
-        with get_db() as conn:
-            conn.execute(...)
-
-    - 正常結束時自動 commit
-    - 發生例外時自動 rollback，並重新拋出錯誤
-    - 無論如何都會關閉連線，避免資源洩漏
+    用法跟原本完全一樣：
+        with get_db() as cursor:
+            cursor.execute(...)
     """
     conn = get_connection()
+    cursor = conn.cursor()  # 建立游標來執行 SQL
     try:
-        yield conn          # 把連線交給 with 區塊使用
+        yield cursor        # 把游標交給 with 區塊使用
         conn.commit()       # 區塊正常結束 → 提交變更
     except Exception as e:
         conn.rollback()     # 發生錯誤 → 回滾所有變更
-        raise e             # 重新拋出例外，讓上層知道出錯了
+        raise e
     finally:
-        conn.close()        # 無論成功或失敗，都關閉連線
+        cursor.close()      # 關閉游標
+        conn.close()        # 關閉連線
 
 
 def check_connection():
     """
-    確認資料庫連線是否正常。
-    印出 SQLite 版本與 DB 檔案路徑。
+    確認 MySQL 資料庫連線是否正常。
     """
     try:
-        with get_db() as conn:
-            version = conn.execute("SELECT sqlite_version()").fetchone()[0]
-            print(f"✅ 連線成功！")
-            print(f"   SQLite 版本：{version}")
-            print(f"   資料庫路徑：{DB_PATH}")
+        with get_db() as cursor:
+            cursor.execute("SELECT VERSION()")
+            version = cursor.fetchone()["VERSION()"]
+            print(f"   MySQL 連線成功！")
+            print(f"   MySQL 版本：{version}")
+            print(f"   目前使用的資料庫：{DB_CONFIG['database']}")
     except Exception as e:
-        print(f"❌ 連線失敗：{e}")
+        print(f" MySQL 連線失敗，請檢查 XAMPP 是否有亮綠燈：{e}")
 
 
 if __name__ == "__main__":
