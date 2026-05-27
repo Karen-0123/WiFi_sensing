@@ -7,7 +7,7 @@ DB_CONFIG = {
     "host": "mysql-46cb3ab-ntou-project.h.aivencloud.com",
     "port": 21225,
     "user": "avnadmin",
-    "password": "AVNS_NiPQqsShIbu0Shs-vYB",
+    "password": "AVNS_kegvXqQywhPKN1Xr4Yp",
     "database": "defaultdb",
     "charset": "utf8mb4",
     "cursorclass": pymysql.cursors.DictCursor,

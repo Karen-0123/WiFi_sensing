@@ -8,6 +8,7 @@ SQL_CREATE_USERS = """
 CREATE TABLE IF NOT EXISTS users (
     id              INT AUTO_INCREMENT PRIMARY KEY,
     username        VARCHAR(255) NOT NULL UNIQUE,      -- 登入帳號，不可重複
+    password        VARCHAR(255) NOT NULL,
     display_name    VARCHAR(255),                      -- 顯示名稱（可為空）
     created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
     wake_preference TEXT                               -- JSON 字串，例如 {"window_min": 30}
