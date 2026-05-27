@@ -7,7 +7,7 @@ $host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
 $port = 21225;
 $db_name = 'defaultdb';
 $username_db = 'avnadmin';
-$password_db = 'AVNS_NiPQssShIbu0Shs-vYB'; // 🎯 修正重點：最前面補上單引號了！
+$password_db = 'AVNS_kegvXqQywhPKN1Xr4Yp'; 
 
 try {
     // 最保險、最乾淨的雙引號直譯法，絕對不會發生連接點（.）漏掉的語法錯誤！
