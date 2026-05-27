@@ -9,7 +9,7 @@ $host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
 $port = 21225;
 $db_name = 'defaultdb';
 $username_db = 'avnadmin';
-$password_db = 'AVNS_kegvXqQywhPKN1Xr4Yp';
+$password_db = 'AVNS_kegvXqQywhPKN1Xr4Yp'; 
 
 try {
     $dsn = "mysql:host=$host;port=$port;dbname=$db_name;charset=utf8mb4";
@@ -80,7 +80,7 @@ try {
             <h3>呼吸率統計</h3>
             <div style="margin: 20px 0;">
                 <p class="stat-label">平均呼吸率</p>
-                <p style="font-size: 40px; font-weight: 800; color: #00ff88; margin: 5px 0;"><?php echo round($session_data['avg_respiration_rate'], 1); ?> <span style="font-size: 16px; color: #999;">BPM</span></p>
+                <p style="font-size: 40px; font-weight: 800; color: #00ff88; margin: 5px 0;"><?php echo round(floatval($session_data['avg_respiration_rate'] ?? 0), 1); ?> <span style="font-size: 16px; color: #999;">BPM</span></p>
             </div>
             
             <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
@@ -88,8 +88,9 @@ try {
             <div class="ai-tag">睡眠建議</div>
             <p style="color: #444; font-size: 14px; line-height: 1.7; text-align: justify;">
                 <?php 
-                    $score = floatval($session_data['sleep_score']);
-                    $avg_rr = floatval($session_data['avg_respiration_rate']);
+                    // ✅ 同步加上安全過濾，避免這段 AI 建議也噴出 null 警告
+                    $score = floatval($session_data['sleep_score'] ?? 0);
+                    $avg_rr = floatval($session_data['avg_respiration_rate'] ?? 0);
                     $awake_min = intval($session_data['awake_minutes'] ?? 0);
 
                     if ($score >= 8.5) {
@@ -127,8 +128,8 @@ try {
 </div>
 
 <script>
-    const logLabels = <?php echo json_encode(array_map(function($l){ return substr($l['timestamp'], 11, 5); }, $chart_logs)); ?>;
-    const logData = <?php echo json_encode(array_map(function($l){ return $l['respiration_rate']; }, $chart_logs)); ?>;
+    const logLabels = <?php echo json_encode(array_map(function($l){ return substr($l['timestamp'] ?? '', 11, 5); }, $chart_logs)); ?>;
+    const logData = <?php echo json_encode(array_map(function($l){ return $l['respiration_rate'] ?? 0; }, $chart_logs)); ?>;
 
     new Chart(document.getElementById('lineChart'), {
         type: 'line',

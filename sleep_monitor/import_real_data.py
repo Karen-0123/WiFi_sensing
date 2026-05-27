@@ -14,7 +14,7 @@ MATLAB_OUTPUT_PATH = (
     r"\real_breathing_output.csv"
 )
 
-TARGET_EMAIL = "test_user2@gmail.com"
+TARGET_EMAIL = "test_user1@gmail.com"
 
 def run_import():
     print("   WiFi CSI 睡眠監測系統 — 自動化跨平台資料庫連接 (MySQL 版)")
