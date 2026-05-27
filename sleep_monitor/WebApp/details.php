@@ -9,7 +9,7 @@ $host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
 $port = 21225;
 $db_name = 'defaultdb';
 $username_db = 'avnadmin';
-$password_db = 'AVNS_NiPQssShIbu0Shs-vYB';
+$password_db = 'AVNS_NiPQqsShIbu0Shs-vYB';
 
 try {
     $dsn = "mysql:host=$host;port=$port;dbname=$db_name;charset=utf8mb4";
