@@ -2,6 +2,7 @@
 session_start();
 header('Content-Type: application/json');
 
+// Aiven 雲端資料庫設定
 $host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
 $port = 21225;
 $db_name = 'defaultdb';
@@ -18,17 +19,19 @@ try {
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_TIMEOUT => 15,
         PDO::MYSQL_ATTR_SSL_CA => $ca_cert_path, 
-        PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false,
-        PDO::MYSQL_ATTR_SSL_COMMAND => 'SET NAMES utf8mb4'
+        PDO::MYSQL_ATTR_SSL_VERIFY_SERVER_CERT => false
     ];
     
     $db = new PDO($dsn, $username_db, $password_db, $options);
+    
+    // 安全替代：消滅常數未定義引發的 500 錯誤
+    $db->exec("SET NAMES utf8mb4");
+
 } catch (Exception $e) { 
-    // 💥 如果失敗，直接噴出最底層的錯誤，不讓前端卡死
     die(json_encode(['status' => 'error', 'message' => 'Aiven 連線失敗: ' . $e->getMessage()])); 
 }
 
-// 接收資料與登入註冊邏輯
+// 📥 接收前端資料
 $data = json_decode(file_get_contents("php://input"), true);
 $username = $data['email'] ?? $data['username'] ?? $_POST['username'] ?? $_POST['email'] ?? '';
 $password = $data['password'] ?? $_POST['password'] ?? '';
@@ -51,20 +54,23 @@ try {
                 $_SESSION['email'] = $user['username'];
                 echo json_encode(['status' => 'success', 'message' => '登入成功']);
             } else {
-                echo json_encode(['status' => 'error', 'message' => '密碼錯誤']);
+                echo json_encode(['status' => 'error', 'message' => '密碼錯誤，請再試一次']);
             }
         } else {
-            echo json_encode(['status' => 'error', 'message' => '帳號不存在']);
+            echo json_encode(['status' => 'error', 'message' => '帳號不存在，請先註冊']);
         }
     } else {
         if ($user) {
             echo json_encode(['status' => 'error', 'message' => '此 Email 已被註冊']);
         } else {
             $hashed_password = password_hash($password, PASSWORD_BCRYPT);
+
             $ins = $db->prepare("INSERT INTO users (username, password, display_name) VALUES (?, ?, 'New User')");
             $ins->execute([$username, $hashed_password]);
+            
             $_SESSION['user_id'] = $db->lastInsertId();
             $_SESSION['email'] = $username;
+            
             echo json_encode(['status' => 'success', 'message' => '註冊成功']);
         }
     }
