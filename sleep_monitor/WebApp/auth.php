@@ -7,12 +7,12 @@ $host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
 $port = 21225;
 $db_name = 'defaultdb';
 $username_db = 'avnadmin';
-$password_db = AVNS_NiPQqsShIbu0Shs-vYB';
+$password_db = 'AVNS_NiPQssShIbu0Shs-vYB'; // 🎯 修正重點：最前面補上單引號了！
 
 try {
+    // 最保險、最乾淨的雙引號直譯法，絕對不會發生連接點（.）漏掉的語法錯誤！
     $dsn = "mysql:host=$host;port=$port;dbname=$db_name;charset=utf8mb4";
     
-    // 🛡️ 讀取同資料夾底下的 ca.pem 憑證
     $ca_cert_path = __DIR__ . '/ca.pem'; 
 
     $options = [
@@ -23,15 +23,13 @@ try {
     ];
     
     $db = new PDO($dsn, $username_db, $password_db, $options);
-    
-    // 安全替代：消滅常數未定義引發的 500 錯誤
     $db->exec("SET NAMES utf8mb4");
 
 } catch (Exception $e) { 
     die(json_encode(['status' => 'error', 'message' => 'Aiven 連線失敗: ' . $e->getMessage()])); 
 }
 
-// 📥 接收前端資料
+//  接收前端資料
 $data = json_decode(file_get_contents("php://input"), true);
 $username = $data['email'] ?? $data['username'] ?? $_POST['username'] ?? $_POST['email'] ?? '';
 $password = $data['password'] ?? $_POST['password'] ?? '';
