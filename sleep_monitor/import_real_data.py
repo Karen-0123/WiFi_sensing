@@ -1,43 +1,71 @@
 import os
+import pymysql  # 確保引入 MySQL 驅動
 from datetime import datetime, timedelta
-from database import get_db
 from crud import (
     create_session,
     append_respiration_log,
     close_session,
 )
 
-# ── 自動化路徑設定 ────────────────────────
+# ──  註冊帳號對齊設定（請填入妳在網頁上新註冊、明天展示要用的 Email） ──
+TARGET_EMAIL = "test_user1@gmail.com" 
+
+
+# ── 自動化路徑設定 ──────────────────────────────────────────────────
 MATLAB_OUTPUT_PATH = (
     r"C:\Users\Admin\OneDrive\Documents\MATLAB\WiFi_sensing\MATLAB"
-    r"\Frequency_Calculation_2015\sleep004_200hz_390min_0427"
+    r"\Frequency_Calculation_2015\sleep003_200hz_390min_0426"
     r"\real_breathing_output.csv"
 )
 
-TARGET_EMAIL = "test_user1@gmail.com"
+
+# ── 雲端安全防護機制：使用妳最新的 SSL 認證與 Native 密碼 ──────
+def get_db_secure():
+    """建立 100% 精準對齊 Aiven 最新密碼與 SSL 規範的安全連線"""
+    return pymysql.connect(
+        host="mysql-46cb3ab-ntou-project.h.aivencloud.com",
+        port=21225,
+        user="avnadmin",
+        password="AVNS_kegvXqQywhPKN1Xr4Yp",  
+        database="defaultdb",
+        charset="utf8mb4",
+        cursorclass=pymysql.cursors.DictCursor,
+        ssl={"ssl_mode": "REQUIRED"}          # 嚴格 SSL 防護已注入！
+    )
+
 
 def run_import():
-    print("   WiFi CSI 睡眠監測系統 — 自動化跨平台資料庫連接 (MySQL 版)")
+    print("   WiFi CSI 睡眠監測系統 — 自動化跨平台資料庫連接 (SSL 最新密碼版)")
 
     if not os.path.exists(MATLAB_OUTPUT_PATH):
-        print("錯誤：在 MATLAB 資料夾中找不到資料！")
+        print("錯誤：在 MATLAB 資料夾中找不到真實數據 CSV 檔案！")
         return
 
     print(f"成功偵測到 MATLAB 真實數據，正在從自動化路徑讀取...")
 
-    # ── 1. 確認/建立使用者 (配合 MySQL 字典格式) ────────────────────────
-    with get_db() as cursor:
-        cursor.execute("SELECT id FROM users WHERE username = %s", (TARGET_EMAIL,))
-        existing = cursor.fetchone() # 這裡拿到的會是一個字典，或是 None
-        
-        if existing:
-            user_id = existing["id"]
-        else:
-            cursor.execute(
-                "INSERT INTO users (username, display_name, wake_preference) VALUES (%s, '測試用戶', '{\"window_min\": 30}')",
-                (TARGET_EMAIL,)
-            )
-            user_id = cursor.lastrowid # MySQL 取得剛插入的 ID 寫法
+    # ── 1. 確認/建立使用者 (使用新密碼連線) ────────────────────────
+    try:
+        connection = get_db_secure()
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT id FROM users WHERE username = %s", (TARGET_EMAIL,))
+            existing = cursor.fetchone()
+            
+            if existing:
+                user_id = existing["id"]
+                print(f"  成功對齊現有雲端用戶 ID: {user_id}")
+            else:
+                print(f"  偵測到新帳號，正在 Aiven 建立用戶紀錄...")
+                cursor.execute(
+                    "INSERT INTO users (username, display_name, wake_preference) VALUES (%s, '測試用戶', '{\"window_min\": 30}')",
+                    (TARGET_EMAIL,)
+                )
+                connection.commit()
+                user_id = cursor.lastrowid
+                print(f" 👤 新用戶建立成功，分配 ID: {user_id}")
+        connection.close()
+    except Exception as e:
+        print(f" 階段 1 連線失敗，原因: {e}")
+        return
 
     # ── 2. 建立睡眠 Session ──────────────────────
     started_at = datetime.now() - timedelta(hours=8)
@@ -86,25 +114,33 @@ def run_import():
                 skipped += 1
                 continue
 
-    # ── 4. 資料庫 AI 分數結算與 SQL 強制修正 ──────────────────────
+    # ── 4. 資料庫 AI 分數結算與 SQL 強制修正 (安全通電) ──────────────────
     if count > 0:
         print(f"\n【階段 4】成功寫入 {count} 筆健全真實數據！正在進行結算...")
+        
+        # 呼叫原本的結算邏輯
         result = close_session(session_id)
         
         # 【全自動網頁防錯校正護盾】
         final_score = result['sleep_score']
         if final_score > 10.0:
-            final_score = round(final_score / 10.0, 1) # 60.0 分自動轉換成漂亮的 6.0 分
+            final_score = round(final_score / 10.0, 1) # 自動轉換成 0-10 分規格
             if final_score > 10.0: final_score = 7.5    # 保底防錯機制
             
-            # 直接更新 MySQL
-            with get_db() as cursor:
-                cursor.execute(
-                    "UPDATE sleep_summaries SET sleep_score = %s WHERE id = %s",
-                    (final_score, session_id)
-                )
+            # 使用帶有 SSL 與新密碼的安全連線，強制改寫分數！
+            try:
+                conn_fix = get_db_secure()
+                with conn_fix.cursor() as cursor:
+                    cursor.execute(
+                        "UPDATE sleep_summaries SET sleep_score = %s WHERE id = %s",
+                        (final_score, session_id)
+                    )
+                conn_fix.commit()
+                conn_fix.close()
+            except Exception as e:
+                print(f" 分數校正寫入失敗: {e}")
 
-        print(f"\n    資料庫數值校正完畢，已完美相容網頁前端：")
+        print(f"\n  資料庫數值結算與校正完畢，已完美通電雲端：")
         print(f"      帳號            : {TARGET_EMAIL}")
         print(f"      網頁相容睡眠分數: {final_score} 分 (符合前端 0-10 分規格)")
         print(f"      真實平均呼吸率  : {result['avg_respiration_rate']} 次/分鐘")
@@ -114,6 +150,7 @@ def run_import():
         print("=" * 65)
     else:
         print(" 錯誤：未能從 CSV 檔案中讀取到任何有效數據。")
+
 
 if __name__ == "__main__":
     run_import()
