@@ -1,4 +1,3 @@
-#schema.py
 from database import get_db
 
 # ──────────────────────────────────────────
@@ -30,6 +29,7 @@ CREATE TABLE IF NOT EXISTS sleep_summaries (
     deep_sleep_minutes   INT,                       -- 深睡時間（分鐘）
     light_sleep_minutes  INT,                       -- 淺睡時間（分鐘）
     rem_sleep_minutes    INT,                       -- REM 時間（分鐘）
+    awake_minutes        INT,                       --  完美對齊！清醒時間（分鐘）已堂堂正正加入結構
     status               VARCHAR(50) DEFAULT 'recording', -- recording / analyzing / done
     reward_points        INT DEFAULT 0,          -- 獎勵積分
     created_at           DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -85,7 +85,7 @@ def init_db():
 
     print("MySQL 資料庫初始化完成！已建立以下結構：")
     print("   - 表：users")
-    print("   - 表：sleep_summaries")
+    print("   - 表：sleep_summaries (包含 awake_minutes 完全體)")
     print("   - 表：respiration_logs")
     print("   - 索引：idx_respiration_session_time (session_id, timestamp)")
 
