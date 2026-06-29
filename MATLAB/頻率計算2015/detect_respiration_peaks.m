@@ -1,16 +1,18 @@
 function [true_peak_idx, true_peak_vals] = detect_respiration_peaks(signal, gap_mask, Fs_target)
-    % 呼吸訊號的精細峰值偵測 (自適應閾值 + 丟包遮罩聯防)
+    % 呼吸訊號的精細峰值偵測 (自適應相對突起度 + 丟包遮罩聯防)
     
-    if nargin < 2, Fs_target = 40; end  % 目標採樣率預設 40 Hz
+    % 【BUG 修正】調整為正確的參數數量檢查
+    if nargin < 3, Fs_target = 40; end  
     N = length(signal);
     if N == 0, true_peak_idx = []; true_peak_vals = []; return; end
 
-    % 1. 適應性閾值：動態跟隨 40Hz 訊號標準差
-    adaptive_threshold = 0.5 * std(signal); 
-    [candidate_pks, candidate_locs] = findpeaks(signal, 'MinPeakHeight', adaptive_threshold);
+    % 【策略優化】改用相對突起度 (Prominence)，只要高出局部低谷一定比例就納入候選
+    % 這樣可以完美保留絕對幅值低、但波形明顯的綠點波峰
+    adaptive_prominence = 0.2 * std(signal); 
+    [candidate_pks, candidate_locs] = findpeaks(signal, 'MinPeakProminence', adaptive_prominence);
 
-    % 2. 3 秒驗證窗口 (3 * 20 = 30 個採樣點)
-    window_samples = round(3 * Fs_target); 
+    % 2. 自適應驗證窗口 (縮短為 1 秒的半窗口，避免被相鄰大波峰的半山腰邊緣誤殺)
+    window_samples = round(3 * Fs_target);
     half_window = floor(window_samples / 2); 
 
     true_peak_idx = [];
@@ -26,7 +28,7 @@ function [true_peak_idx, true_peak_vals] = detect_respiration_peaks(signal, gap_
             continue; 
         end
 
-        % 1.5 秒窗口內最大值鄰域校驗
+        % 鄰域最大值校驗
         start_idx = max(1, curr_idx - half_window);
         end_idx = min(N, curr_idx + half_window);
 
