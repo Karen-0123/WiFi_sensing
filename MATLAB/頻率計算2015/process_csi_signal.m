@@ -1,225 +1,281 @@
 function [amp_pc1_norm, phase_pc1_norm] = process_csi_signal(csi_matrix, Fs_target)
-% process_csi_signal  MRC-PCA 架構的 CSI 呼吸訊號提取
+% process_csi_signal   Rx pair conjugate multiplication + SNR weighting + per-Tx PCA
 %
-% 架構流程：
+% Pipeline for MATLAB R2015b:
 %   [N,30,2,3] CSI
-%       ↓
-%   Step 1: MRC 加權合併 (3 Rx → 1 虛擬 Rx，per Tx per Subcarrier)
-%       ↓
-%   [N,30,2,1] 合併後 CSI
-%       ↓
-%   Step 2: 共軛相乘消除相位偏移 (2 Tx × 1 Rx對 = 2 組合 × 30 = 60 特徵)
-%       ↓
-%   Step 3: PCA 降維 → PC1 (呼吸主成分)
-%       ↓
-%   Step 4: Savitzky-Golay 濾波
-%       ↓
-%   Step 5: Z-score 歸一化
+%       |
+%       +-- Step 1: Rx pair conjugate multiplication per Tx
+%              Rx1*conj(Rx2), Rx1*conj(Rx3), Rx2*conj(Rx3)
+%              (complex output preserved)
+%       |
+%       +-- Step 2: Per-subcarrier SNR estimation
+%              SNR used only as weights; no antenna combining is performed
+%       |
+%       +-- Step 3: Savitzky-Golay filtering on amplitude and phase
+%       |
+%       +-- Step 4: PCA on each Tx independently
+%              keep PC1 for amplitude and phase
+%       |
+%       +-- Step 5: Z-score normalization and Tx selection
+%              select the Tx with the stronger breathing signature
 %
-% 輸入:
-%   csi_matrix  - [N, 30, 2, 3]  (N封包, 30子載波, 2 Tx, 3 Rx)
-%   Fs_target   - 重採樣後的採樣率 (預設 20 Hz)
+% Inputs:
+%   csi_matrix  - CSI tensor [N, 30, 2, 3]
+%   Fs_target   - resampled sampling rate (Hz)
 %
-% 輸出:
-%   amp_pc1_norm   - MRC-PCA 振幅 PC1，Z-score 歸一化 [N, 1]
-%   phase_pc1_norm - MRC-PCA 相位 PC1，Z-score 歸一化 [N, 1]
+% Outputs:
+%   amp_pc1_norm   - selected Tx amplitude PC1, z-scored [N, 1]
+%   phase_pc1_norm - selected Tx phase PC1, z-scored [N, 1]
 
-    if nargin < 2, Fs_target = 40; end
-    N = size(csi_matrix, 1);
-    if N == 0, error('輸入的 CSI 矩陣為空！'); end
+    if nargin < 2
+        Fs_target = 40;
+    end
 
-    % =========================================================================
-    % Step 1: MRC — 計算每根 Rx 天線的加權權重並合併
-    % =========================================================================
-    % MRC 原理：w_rx = mean_power(rx) / sum(mean_power(all_rx))
-    %   合併訊號 = Σ conj(w_rx) * rx_signal
-    %   當權重基於功率時，等效為 SNR 最大化合併
-    %
-    % 實作細節：
-    %   - 功率計算跨越 [時間, 子載波] 兩個維度取平均，代表該天線的全頻寬平均功率
-    %   - 對每個 Tx 分別計算獨立的 MRC 權重（因不同 Tx 的路徑特性不同）
-    %   - 合併後保留複數形式以保留相位資訊供後續共軛相乘使用
-    % =========================================================================
+    if isempty(csi_matrix)
+        error('輸入的 CSI 矩陣為空！');
+    end
 
-    fprintf('[MRC] 計算 3 根 Rx 天線加權權重並執行 Maximal Ratio Combining...\n');
+    [N, Nsc, Ntx, Nrx] = size(csi_matrix);
+    if Ntx ~= 2 || Nrx ~= 3 || Nsc ~= 30
+        error('輸入 CSI 維度必須為 [N, 30, 2, 3]');
+    end
 
-    % 合併結果存於 [N, 30, 2]（Rx 維度消除）
-    csi_mrc = zeros(N, 30, 2);
+    if N < 4
+        error('CSI 資料長度不足，無法進行 PCA');
+    end
 
-    for tx = 1:2
-        % 提取當前 Tx 下所有 Rx 訊號，各為 [N, 30]
-        rx_signals = cell(1, 3);
-        power_per_rx = zeros(1, 3);
+    resp_band = [0.1, 0.6];
+    pair_defs = [1 2; 1 3; 2 3];
+    pair_names = {'Rx1*conj(Rx2)', 'Rx1*conj(Rx3)', 'Rx2*conj(Rx3)'};
+    num_pairs = size(pair_defs, 1);
 
-        for rx = 1:3
-            rx_signals{rx} = squeeze(csi_matrix(:, :, tx, rx));  % [N, 30]
-            % 平均功率 = mean(|h|^2) over 時間 × 子載波
-            power_per_rx(rx) = mean(mean(abs(rx_signals{rx}).^2));
+    amp_pc1_by_tx = zeros(N, Ntx);
+    phase_pc1_by_tx = zeros(N, Ntx);
+    amp_explained = zeros(Ntx, 1);
+    phase_explained = zeros(Ntx, 1);
+    band_focus = zeros(Ntx, 1);
+    selection_score = zeros(Ntx, 1);
+    avg_weights = zeros(num_pairs, Ntx);
+
+    fprintf('====== [process_csi_signal] 開始：Rx pair 特徵 + SNR 權重 + Tx PCA ======\n');
+
+    for tx = 1:Ntx
+        fprintf('[Tx%d] 建立 Rx pair 的共軛特徵...\n', tx);
+
+        pair_complex = zeros(N, Nsc, num_pairs);
+        for p = 1:num_pairs
+            rx_a = pair_defs(p, 1);
+            rx_b = pair_defs(p, 2);
+            rx_a_sig = squeeze(csi_matrix(:, :, tx, rx_a));
+            rx_b_sig = squeeze(csi_matrix(:, :, tx, rx_b));
+            pair_complex(:, :, p) = rx_a_sig .* conj(rx_b_sig);
         end
 
-        % 歸一化權重（使權重總和為 1，保持訊號尺度穩定）
-        total_power = sum(power_per_rx);
-        if total_power < eps
-            weights = ones(1, 3) / 3;  % 功率為零時退化為等權重
-            warning('[MRC] Tx%d 總功率接近零，使用等權重合併。', tx);
+        fprintf('[Tx%d] 估計每個 subcarrier 的 SNR，並以其作為權重 (不進行天線合併)...\n', tx);
+        pair_weights = zeros(num_pairs, Nsc);
+        weighted_complex = zeros(N, Nsc * num_pairs);
+
+        for sc = 1:Nsc
+            snr_vals = zeros(num_pairs, 1);
+            for p = 1:num_pairs
+                snr_vals(p) = estimate_respiration_snr(pair_complex(:, sc, p), Fs_target, resp_band);
+            end
+
+            snr_sum = sum(snr_vals);
+
+            if snr_sum < eps
+                w = ones(num_pairs,1)/num_pairs;
+                warning('[Tx%d] 子載波 #%d 的 SNR 估計為 0，改用平均權重', tx, sc);
+            else
+                w = snr_vals / snr_sum;
+            end
+
+            pair_weights(:, sc) = w;
+
+            for p = 1:num_pairs
+                col_idx = (p-1)*Nsc + sc;
+                weighted_complex(:, col_idx) = pair_complex(:, sc, p) * w(p);
+            end
+        end
+
+        for p = 1:num_pairs
+            avg_weights(p, tx) = mean(pair_weights(p, :));
+            fprintf('[Tx%d] 平均權重 %s = %.3f\n', tx, pair_names{p}, avg_weights(p, tx));
+        end
+
+        amp_matrix = abs(weighted_complex);
+        phase_matrix = unwrap(angle(weighted_complex));
+
+        %window_length = sg_window_length(N, Fs_target, 3);
+        window_length = 121;
+        if window_length > 3
+            fprintf('[Tx%d] Savitzky-Golay 濾波 (window=%d, poly=3)...\n', tx, window_length);
+            amp_filtered = sgolayfilt(amp_matrix, 3, window_length);
+            phase_filtered = sgolayfilt(phase_matrix, 3, window_length);
         else
-            weights = power_per_rx / total_power;
+            amp_filtered = amp_matrix;
+            phase_filtered = phase_matrix;
+            warning('[Tx%d] 資料長度不足以設定視窗大小，跳過 Savitzky-Golay 濾波', tx);
         end
 
-        fprintf('[MRC]   Tx%d 天線功率比例: Rx1=%.3f  Rx2=%.3f  Rx3=%.3f\n', ...
-                tx, weights(1), weights(2), weights(3));
+        fprintf('[Tx%d] 進行 PCA，提取振幅與相位的 PC1...\n', tx);
+        [~, score_amp, latent_amp] = pca(amp_filtered);
+        [~, score_phase, latent_phase] = pca(phase_filtered);
 
-        % MRC 合併：加權疊加 (複數保留)
-        % shape: [N, 30]
-        csi_mrc(:, :, tx) = weights(1) * rx_signals{1} + ...
-                             weights(2) * rx_signals{2} + ...
-                             weights(3) * rx_signals{3};
+        amp_pc1_raw = score_amp(:, 1);
+        phase_pc1_raw = score_phase(:, 1);
+        amp_pc1_by_tx(:, tx) = safe_zscore(amp_pc1_raw);
+        phase_pc1_by_tx(:, tx) = safe_zscore(phase_pc1_raw);
+
+        total_var_amp = sum(latent_amp);
+        total_var_phase = sum(latent_phase);
+        if total_var_amp < eps
+            amp_explained(tx) = 0;
+        else
+            amp_explained(tx) = latent_amp(1) / total_var_amp;
+        end
+        if total_var_phase < eps
+            phase_explained(tx) = 0;
+        else
+            phase_explained(tx) = latent_phase(1) / total_var_phase;
+        end
+
+        band_focus(tx) = 0.5 * ( ...
+            band_energy_ratio(amp_pc1_by_tx(:, tx), Fs_target, resp_band) + ...
+            band_energy_ratio(phase_pc1_by_tx(:, tx), Fs_target, resp_band));
+
+        % Tx selection metric:
+        %   1) mean of amplitude/phase PC1 explained variance
+        %   2) mean respiration-band energy concentration after z-score
+        % The two terms are blended into one objective score.
+        explained_mean = 0.5 * (amp_explained(tx) + phase_explained(tx));
+        selection_score(tx) = 0.5 * explained_mean + 0.5 * band_focus(tx);
+
+        fprintf(['[Tx%d] PC1 解釋方差: amp=%.2f%% phase=%.2f%% | ', ...
+                 'band-focus=%.3f | score=%.3f\n'], ...
+                tx, amp_explained(tx) * 100, phase_explained(tx) * 100, ...
+                band_focus(tx), selection_score(tx));
     end
 
-    fprintf('[MRC] 完成！輸出虛擬天線矩陣大小: [%d, 30, 2]\n', N);
+    [~, best_tx] = max(selection_score);
+    amp_pc1_norm = amp_pc1_by_tx(:, best_tx);
+    phase_pc1_norm = phase_pc1_by_tx(:, best_tx);
+
+    fprintf('[結果] 最終選擇 Tx%d 作為輸出，為該 Tx 的振幅與相位 PC1（已分別 Z-score）\n', best_tx);
+    fprintf('[結果] 選擇依據：PC1 解釋方差 + 呼吸頻帶能量集中度\n');
 
     % =========================================================================
-    % Step 2: 共軛相乘消除隨機相位偏移
+    % 視覺化：SNR 權重分佈 + Tx PC1 對照 + Tx 選擇依據
     % =========================================================================
-    % MRC 合併後每個 Tx 僅剩 1 根虛擬 Rx：
-    %   - Tx1_vRx × conj(Tx2_vRx)：跨 Tx 消除公共相位偏移
-    %   - 此處保留 2 個 Tx 的自共軛（對自身取 |h|^2）作為補充特徵
-    %   - 總共 3 組合 × 30 子載波 = 90 個融合特徵
-    %
-    % 組合說明：
-    %   combo1 [1:30]   = Tx1_vRx  .*  conj(Tx2_vRx)   ← 跨Tx差分，最重要
-    %   combo2 [31:60]  = Tx1_vRx  .*  conj(Tx1_vRx)   = |Tx1|^2（功率包絡）
-    %   combo3 [61:90]  = Tx2_vRx  .*  conj(Tx2_vRx)   = |Tx2|^2（功率包絡）
-    % =========================================================================
-
-    fprintf('[共軛相乘] 對 MRC 輸出執行跨 Tx 共軛相乘 (90 個融合特徵)...\n');
-
-    tx1 = squeeze(csi_mrc(:, :, 1));   % [N, 30]
-    tx2 = squeeze(csi_mrc(:, :, 2));   % [N, 30]
-
-    csi_features = [tx1 .* conj(tx2), ...   % 跨Tx差分相位（含振幅乘積）
-                    tx1 .* conj(tx1), ...   % Tx1 功率包絡（純實數）
-                    tx2 .* conj(tx2)];      % Tx2 功率包絡（純實數）
-    % csi_features: [N, 90]
-
-    % 分離振幅與相位
-    amp_matrix   = abs(csi_features);                      % [N, 90]
-    phase_matrix = unwrap(angle(csi_features), [], 1);     % [N, 90]
-
-    % =========================================================================
-    % Step 3: PCA 降維 — 提取呼吸主成分 PC1
-    % =========================================================================
-    % 從 90 個融合特徵中提取方差最大的主成分（最接近呼吸週期的訊號）
-    % 僅保留 PC1（前 3 個用於診斷輸出）
-    % =========================================================================
-
-    fprintf('[PCA] 對 MRC 合併特徵執行 PCA 降維 (提取 PC1)...\n');
-
-    [coeff_amp, score_amp, latent_amp] = pca(amp_matrix);
-    [coeff_phase, score_phase, latent_phase] = pca(phase_matrix);
-
-    % 取前 3 個主成分（用於視覺化）；PC1 為主要輸出
-    n_pcs = min(3, size(score_amp, 2));
-    amp_pcs   = score_amp(:, 1:n_pcs);    % [N, 3]
-    phase_pcs = score_phase(:, 1:n_pcs);  % [N, 3]
-
-    % 列印各主成分解釋方差比例（有助判斷呼吸訊號強度）
-    total_var_amp   = sum(latent_amp);
-    total_var_phase = sum(latent_phase);
-    fprintf('[PCA] 振幅 PC1 解釋方差: %.1f%%  PC2: %.1f%%  PC3: %.1f%%\n', ...
-            latent_amp(1)/total_var_amp*100, ...
-            latent_amp(2)/total_var_amp*100, ...
-            latent_amp(3)/total_var_amp*100);
-    fprintf('[PCA] 相位 PC1 解釋方差: %.1f%%  PC2: %.1f%%  PC3: %.1f%%\n', ...
-            latent_phase(1)/total_var_phase*100, ...
-            latent_phase(2)/total_var_phase*100, ...
-            latent_phase(3)/total_var_phase*100);
-
-    % =========================================================================
-    % Step 4: Savitzky-Golay 濾波 (保持局部波形形狀)
-    % =========================================================================
-
-    window_length = 2 * floor((0.5 * Fs_target) / 2) + 1;  % 0.5 秒視窗，需為奇數
-    poly_order = 3;
-
-    if N > window_length
-        amp_filtered   = sgolayfilt(amp_pcs,   poly_order, window_length);
-        phase_filtered = sgolayfilt(phase_pcs, poly_order, window_length);
-    else
-        amp_filtered   = amp_pcs;
-        phase_filtered = phase_pcs;
-        warning('[SG濾波] 資料長度不足，跳過 SG 濾波。');
-    end
-
-    % =========================================================================
-    % Step 5: Z-score 歸一化
-    % =========================================================================
-
-    amp_pcs_norm   = zscore(amp_filtered);    % [N, 3]
-    phase_pcs_norm = zscore(phase_filtered);  % [N, 3]
-
-    % 主要輸出為 PC1
-    amp_pc1_norm   = amp_pcs_norm(:, 1);      % [N, 1]
-    phase_pc1_norm = phase_pcs_norm(:, 1);    % [N, 1]
-
-    % =========================================================================
-    % 視覺化
-    % =========================================================================
-
     time_axis = (0:N-1) / Fs_target;
 
-    figure('Name', 'MRC-PCA CSI 呼吸訊號提取結果', 'NumberTitle', 'off');
+    figure('Name', 'CSI Rx Pair -> Tx PCA Selection', 'NumberTitle', 'off', ...
+           'Position', [100, 100, 1100, 600]);
 
-    % --- 子圖1: MRC 天線合併效果（各Tx的3根Rx vs MRC輸出功率包絡）---
-    subplot(3, 2, [1, 2]);
-    % 以 Tx1 的子載波 #15 為例展示 MRC 合併效果
-    sc = 15;
-    rx1_env = abs(squeeze(csi_matrix(:, sc, 1, 1)));
-    rx2_env = abs(squeeze(csi_matrix(:, sc, 1, 2)));
-    rx3_env = abs(squeeze(csi_matrix(:, sc, 1, 3)));
-    mrc_env = abs(squeeze(csi_mrc(:, sc, 1)));
-    plot(time_axis, rx1_env, 'Color', [0.7 0.7 0.7], 'LineWidth', 0.8); hold on;
-    plot(time_axis, rx2_env, 'Color', [0.5 0.5 0.5], 'LineWidth', 0.8);
-    plot(time_axis, rx3_env, 'Color', [0.3 0.3 0.3], 'LineWidth', 0.8);
-    plot(time_axis, mrc_env, 'r',  'LineWidth', 1.8);
-    hold off;
-    title(sprintf('MRC 合併效果 (Tx1, 子載波 #%d)', sc));
-    legend('Rx1', 'Rx2', 'Rx3', 'MRC 輸出', 'Location', 'best');
-    xlabel('時間 (秒)'); ylabel('振幅'); grid on; axis tight;
+    subplot(2, 2, 1);
+    bar(avg_weights.');
+    set(gca, 'XTick', 1:Ntx, 'XTickLabel', {'Tx1', 'Tx2'});
+    legend(pair_names, 'Location', 'best');
+    ylabel('Mean SNR Weight');
+    title('Per-Tx 平均 Rx pair 權重');
+    grid on;
 
-    % --- 子圖2: 振幅 PC1~PC3 ---
-    subplot(3, 2, 3);
-    plot(time_axis, amp_pcs_norm, 'LineWidth', 1.2);
-    title('MRC-PCA 振幅主成分 (SG 濾波 + Z-score)');
-    legend('PC1', 'PC2', 'PC3', 'Location', 'best');
+    subplot(2, 2, 2);
+    plot(time_axis, amp_pc1_by_tx(:, 1), 'Color', [0 0.447 0.741], 'LineWidth', 1.1); hold on;
+    plot(time_axis, amp_pc1_by_tx(:, 2), 'Color', [0.85 0.325 0.098], 'LineWidth', 1.1);
+    plot(time_axis, amp_pc1_norm, 'k', 'LineWidth', 1.8);
+    title(sprintf('Amplitude PC1 (selected: Tx%d)', best_tx));
     xlabel('時間 (秒)'); ylabel('Z-score'); grid on; axis tight;
+    legend('Tx1', 'Tx2', 'Selected', 'Location', 'best');
 
-    % --- 子圖3: 振幅 PC1 解釋方差圓餅圖 ---
-    subplot(3, 2, 4);
-    var_ratio_amp = latent_amp(1:min(5,end)) / total_var_amp * 100;
-    bar(var_ratio_amp, 'FaceColor', [0.2 0.6 0.8]);
-    title('振幅 PCA 各主成分解釋方差 (%)');
-    xlabel('主成分'); ylabel('解釋方差 (%)'); grid on;
-%     xticklabels(arrayfun(@(x) sprintf('PC%d', x), 1:length(var_ratio_amp), ...
-%                 'UniformOutput', false));
-
-    % --- 子圖4: 相位 PC1~PC3 ---
-    subplot(3, 2, 5);
-    plot(time_axis, phase_pcs_norm, 'LineWidth', 1.2);
-    title('MRC-PCA 相位主成分 (SG 濾波 + Z-score)');
-    legend('PC1', 'PC2', 'PC3', 'Location', 'best');
+    subplot(2, 2, 3);
+    plot(time_axis, phase_pc1_by_tx(:, 1), 'Color', [0 0.447 0.741], 'LineWidth', 1.1); hold on;
+    plot(time_axis, phase_pc1_by_tx(:, 2), 'Color', [0.85 0.325 0.098], 'LineWidth', 1.1);
+    plot(time_axis, phase_pc1_norm, 'k', 'LineWidth', 1.8);
+    title(sprintf('Phase PC1 (selected: Tx%d)', best_tx));
     xlabel('時間 (秒)'); ylabel('Z-score'); grid on; axis tight;
+    legend('Tx1', 'Tx2', 'Selected', 'Location', 'best');
 
-    % --- 子圖5: 相位 PC1 解釋方差 ---
-    subplot(3, 2, 6);
-    var_ratio_phase = latent_phase(1:min(5,end)) / total_var_phase * 100;
-    bar(var_ratio_phase, 'FaceColor', [0.8 0.4 0.2]);
-    title('相位 PCA 各主成分解釋方差 (%)');
-    xlabel('主成分'); ylabel('解釋方差 (%)'); grid on;
-%     xticklabels(arrayfun(@(x) sprintf('PC%d', x), 1:length(var_ratio_phase), ...
-%                 'UniformOutput', false));
+    subplot(2, 2, 4);
+    metric_matrix = [amp_explained, phase_explained, band_focus, selection_score];
+    bar(metric_matrix);
+    set(gca, 'XTick', 1:Ntx, 'XTickLabel', {'Tx1', 'Tx2'});
+    legend({'Amp PC1 explained', 'Phase PC1 explained', 'Band focus', 'Selection score'}, ...
+           'Location', 'best');
+    ylabel('Score');
+    title('Tx Selection Criterion');
+    grid on;
 
-%     sgtitle('MRC-PCA 架構：CSI 呼吸訊號提取完整流程');
+    fprintf('[完成] 執行 process_csi_signal 流程完成，輸出長度 %d\n', N);
+end
 
-    fprintf('[完成] MRC-PCA 處理完畢。輸出 PC1 (振幅/相位) 各為 [%d×1] 向量。\n', N);
+function snr_linear = estimate_respiration_snr(feature_series, Fs_target, resp_band)
+% Estimate respiration-band SNR for one complex feature/subcarrier.
+
+    amp_series = abs(feature_series(:));
+    phase_series = unwrap(angle(feature_series(:)));
+
+    amp_snr = band_energy_ratio(amp_series, Fs_target, resp_band);
+    phase_snr = band_energy_ratio(phase_series, Fs_target, resp_band);
+
+    snr_linear = max(0.5 * (amp_snr + phase_snr), eps);
+end
+
+function ratio = band_energy_ratio(signal_vec, Fs_target, resp_band)
+% Respiration-band energy ratio using a one-sided FFT power spectrum.
+
+    signal_vec = signal_vec(:);
+    n = length(signal_vec);
+    if n < 4
+        ratio = 0;
+        return;
+    end
+
+    signal_vec = signal_vec - mean(signal_vec);
+    if all(abs(signal_vec) < eps)
+        ratio = 0;
+        return;
+    end
+
+    Y = fft(signal_vec);
+    P2 = abs(Y / n).^2;
+    half_len = floor(n / 2) + 1;
+    P1 = P2(1:half_len);
+    if half_len > 2
+        P1(2:end-1) = 2 * P1(2:end-1);
+    end
+
+    f = Fs_target * (0:(half_len - 1)) / n;
+    band_idx = (f >= resp_band(1)) & (f <= resp_band(2));
+
+    signal_power = sum(P1(band_idx));
+    noise_power = sum(P1(~band_idx));
+    ratio = signal_power / max(noise_power, eps);
+end
+
+function y = safe_zscore(x)
+% Robust z-score that returns zeros for a near-constant input.
+
+    x = x(:);
+    sigma = std(x);
+    if isempty(x) || sigma < eps
+        y = zeros(size(x));
+    else
+        y = (x - mean(x)) / sigma;
+    end
+end
+
+function window_length = sg_window_length(n_samples, Fs_target, poly_order)
+% Choose an odd Savitzky-Golay window that is valid for the current input.
+
+    base_window = 2 * floor((0.5 * Fs_target) / 2) + 1;
+    max_valid = n_samples;
+    if mod(max_valid, 2) == 0
+        max_valid = max_valid - 1;
+    end
+
+    window_length = min(base_window, max_valid);
+    if window_length <= poly_order
+        window_length = 0;
+    end
 end

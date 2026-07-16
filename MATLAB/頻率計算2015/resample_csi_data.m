@@ -40,7 +40,7 @@ function [csi_resampled, t_uniform, gap_mask] = resample_csi_data(csi_matrix, ti
     csi_resampled_2d = interp1(timestamp_sec, csi_lp, t_uniform, 'linear');
 
     % =========================================================================
-    % 地毯式偵測所有掉包：有掉的就都顯示出來s
+    % 地毯式偵測所有掉包：有掉的就都顯示出來
     % =========================================================================
     % 初始化與均勻時間軸等長的布林遮罩 (預設 false 代表沒掉包)
     gap_mask = false(N_uniform, 1); 

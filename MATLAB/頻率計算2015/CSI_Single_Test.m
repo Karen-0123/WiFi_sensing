@@ -1,9 +1,9 @@
 clear; clc; close all;
 
 % 設定基本參數 (已修正檔案路徑開頭引號)
-filename = 'C:\Users\fupei\Desktop\csi\data\0515_test_video\test_video002.dat';
-Fs_orig = 200;
-Fs_target = 40;                    % 目標均勻採樣率 (Hz)，不寫預設20Hz
+filename = 'C:\Users\fupei\Desktop\csi\data\flip\flip50hzR_20s_002.dat';
+Fs_orig = 50;
+Fs_target = 20;                     % 目標均勻採樣率 (Hz)，不寫預設20Hz
 
 fprintf('====== 系統啟動：開始生理訊號萃取量測 ======\n');
 
@@ -16,6 +16,13 @@ fprintf('====== 系統啟動：開始生理訊號萃取量測 ======\n');
 
 % 步驟 3: 訊號特徵提取 (共軛相乘 + PCA 降維 + 自適應 SG 濾波)
 [amp_pcs_norm, phase_pcs_norm] = process_csi_signal(csi_resampled, Fs_target);
+
+% =========================================================================
+% 新增步驟: 翻身動作偵測
+% =========================================================================
+% 利用重採樣後的 CSI 矩陣，自動識別翻身動作的時間區段
+[events, var_feat] = detect_rollover(amp_pcs_norm, Fs_target, 'WinSec', 3, 'ThreshStd', 0.6);
+% =========================================================================
 
 % 步驟 4: 6路 PCA 串流最佳呼吸特徵自動選擇
 [best_name, best_sig, best_fpsd] = select_respiration_stream(amp_pcs_norm, phase_pcs_norm, Fs_target);
@@ -30,11 +37,11 @@ if length(true_peak_idx) < 2
 end
 
 % 步驟 6: 動態呼吸率計算 (20秒滑動窗口 + 丟包佔比熔斷)
-[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, length(best_sig), gap_mask);
+[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, length(best_sig), gap_mask, Fs_target);
 
 
 % =========================================================================
-% ? 步驟 7: 最終生理量測綜合視覺化 (完整修復修補版，全面顯示所有掉包)
+% 步驟 7: 最終生理量測綜合視覺化 (完整修復修補版，全面顯示所有掉包)
 % =========================================================================
 figure('Name', 'CSI 呼吸生理監測最終成果報告', 'Position', [100, 100, 1000, 600]);
 
@@ -42,11 +49,11 @@ figure('Name', 'CSI 呼吸生理監測最終成果報告', 'Position', [100, 100, 1000, 600]
 total_gap_ratio = (sum(gap_mask) / length(gap_mask)) * 100;
 
 % -------------------------------------------------------------------------
-% 子圖 1: 呼吸時域訊號波形與精準峰值標記 (全面強化掉包顯示)
+% 子圖 1: 呼吸時域訊號波形與精準峰值標記 (全面強化掉包顯示、新增翻身標示)
 % -------------------------------------------------------------------------
 subplot(2,1,1);
 
-% 【核心修復】：先動態算出訊號的真實範圍，用來當作粉紅背景陰影的高度與 Y 軸極限
+% 先動態算出訊號的真實範圍，用來當作背景陰影的高度與 Y 軸極限
 yl_sig = [-3, 3]; 
 if ~isempty(best_sig)
     yl_sig = [min(best_sig) - 0.5, max(best_sig) + 0.5]; 
@@ -57,25 +64,25 @@ gap_diff = diff([0; gap_mask; 0]);
 gap_starts = find(gap_diff == 1);
 gap_ends = find(gap_diff == -1) - 1;
 
-% ? 【標示優化 1】：將所有大小掉包區間塗上淺粉紅色陰影
+% 將所有大小掉包區間塗上淺粉紅色陰影
 for g = 1:length(gap_starts)
     patch([t_uniform(gap_starts(g)) t_uniform(gap_ends(g)) t_uniform(gap_ends(g)) t_uniform(gap_starts(g))], ...
           [yl_sig(1) yl_sig(1) yl_sig(2) yl_sig(2)], [1 0.85 0.85], 'EdgeColor', 'none', 'FaceAlpha', 0.6);
     hold on;
 end
 
-% ? 【標示優化 2】：在時域圖最底部，點出「實際收到的網卡封包時間點」（灰色點）
-% 點點密的地方代表沒掉包；點點出現空白斷層的地方，上方就會剛好對準粉紅陰影
+% 在時域圖最底部，點出「實際收到的網卡封包時間點」（灰色點）
 if ~isempty(timestamp_sec)
     plot(timestamp_sec, zeros(size(timestamp_sec)) + yl_sig(1) + 0.1, '.', 'Color', [0.6 0.6 0.6], 'MarkerSize', 4);
     hold on;
 end
 
-% 繪製主呼吸波形與紅點波峰
+% 繪製主呼吸波形與紅點波峰 (確保繪圖順序在 Patch 之後，才不會被陰影蓋住)
 plot(t_uniform, best_sig, 'Color', [0 0.447 0.741], 'LineWidth', 1.5); hold on;
 plot(true_peak_idx/Fs_target, true_peak_vals, 'ro', 'MarkerFaceColor', 'r', 'MarkerSize', 6);
 
-title(['【時域波形】通道: ', best_name, ' (紅點:呼吸頂點 | 粉紅陰影:所有大小掉包區間 | 底部灰點:實際收包點)'], 'FontSize', 12);
+% 更新標題，加入綠框翻身的說明
+title(['【時域波形】通道: ', best_name, ' (紅點:呼吸頂點 | 綠虛線框:翻身區段 | 粉紅陰影:掉包區間)'], 'FontSize', 12);
 xlabel('時間 (秒)'); ylabel('標準化幅值');
 grid on; axis tight;
 ylim(yl_sig);
@@ -99,7 +106,7 @@ text(x_lim(2), mean_bpm, [' 觀測期平均呼吸率: ', num2str(mean_bpm, '%.1f'), ' bp
 
 ylim([5 45]);
 
-% ? 【標示優化 3】：把量化的「總數據掉包率」直接大字秀在 Title 上
+% 顯示總體資訊
 title(['【動態生理監測】實時呼吸率走勢 | 數據總體掉包率: ', num2str(total_gap_ratio, '%.1f'), '% | 當前頻域估計: ', num2str(best_fpsd*60, '%.1f'), ' bpm'], 'FontSize', 12);
 xlabel('時間 (秒)'); ylabel('呼吸率 (BPM)');
 grid on;
