@@ -1,3 +1,4 @@
+@ -1,40 +0,0 @@
 function [bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, total_samples, gap_mask)
     % 透過 20 秒滑動窗口與 P2P 間隔計算動態呼吸頻率 (BPM)
 
