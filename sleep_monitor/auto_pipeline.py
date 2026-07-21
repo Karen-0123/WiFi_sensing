@@ -1,22 +1,22 @@
 import os
 import time
 import subprocess
-from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 from watchdog.events import FileSystemEventHandler
 
 
 # 根據自己的電腦環境修改以下 5 個路徑
 # 1. 真實 Samba 監聽目錄 (例如掛載的 Z 槽，或網路 UNC 路徑如 r"\\192.168.1.100\csi_share")
-SAMBA_WATCH_DIR = r"C:\Users\Admin\OneDrive\桌面\wifi_sensing\WiFi_sensing\Mock_Samba" 
+SAMBA_WATCH_DIR = r"\\172.20.10.4\DatFiles" 
 
 # 2. Python 專案根目錄 (存放 sleep_monitor 與 import_real_data.py 的地方)
-PROJECT_ROOT_DIR = r"C:\Users\Admin\OneDrive\桌面\wifi_sensing\WiFi_sensing\sleep_monitor"
+PROJECT_ROOT_DIR = r"D:\大學資料\WiFi_sensing"
 
 # 3. 本機 MATLAB 執行檔路徑 (R2015b)
 MATLAB_EXE_PATH = r"C:\Program Files\MATLAB\R2015b\bin\matlab.exe"
 
 # 4. MATLAB 睡眠演算法腳本所在的資料夾路徑
-MATLAB_SCRIPT_DIR = r"C:\Users\Admin\OneDrive\Documents\MATLAB\WiFi_sensing\MATLAB\Frequency_Calculation_2015"
+MATLAB_SCRIPT_DIR = r"D:\大學資料\WiFi_sensing\MATLAB\頻率計算2015"
 
 # 5. 負責把 CSV 資料上傳到 Aiven 雲端的 Python 檔名
 PYTHON_IMPORT_SCRIPT = "import_real_data.py"
@@ -92,7 +92,11 @@ class SambaFileHandler(FileSystemEventHandler):
 
 if __name__ == "__main__":
     if not os.path.exists(SAMBA_WATCH_DIR):
-        os.makedirs(SAMBA_WATCH_DIR)
+        # 改成嚴格檢查，找不到就提示，而不是自動建立
+        if not os.path.exists(SAMBA_WATCH_DIR):
+            print(f"❌ 錯誤：找不到監聽路徑 {SAMBA_WATCH_DIR}！")
+            print("請確認：1. Samba 伺服器是否開機？ 2. 網路磁碟機是否已中斷？ 3. 是否改用 UNC 路徑 (\\\\192.168.x.x\\...)？")
+            exit(1) # 直接結束程式，避免後續崩潰
 
     print("=" * 65)
     print("  Wi-Fi CSI 睡眠監測 ── 真實 Samba 遠端自動化守護進程已啟動！")
@@ -100,8 +104,8 @@ if __name__ == "__main__":
     print("=" * 65)
 
     event_handler = SambaFileHandler()
-    observer = Observer()
-    observer.schedule(event_handler, path=SAMBA_WATCH_DIR, recursive=False)
+    observer = PollingObserver(timeout=2)
+    observer.schedule(event_handler, path=SAMBA_WATCH_DIR, recursive=True)
     observer.start()
 
     try:
