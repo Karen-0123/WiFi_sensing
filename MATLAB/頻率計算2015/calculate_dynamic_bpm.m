@@ -1,33 +1,42 @@
-function [bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, total_samples)
-    % é€éæ»‘å‹•çª—å£èˆ‡ P2P é–“éš”è¨ˆç®—å‹•æ…‹å‘¼å¸é »ç‡ (BPM)
-    % è¼¸å…¥:
-    %   true_peak_idx - æœ‰æ•ˆå‘¼å¸é ‚é»çš„ç´¢å¼•å€¼é™£åˆ—
-    %   total_samples - åŸå§‹è¨Šè™Ÿçš„ç¸½æ¡æ¨£é»æ•¸
-    % è¼¸å‡º:
-    %   bpm_timeline  - éš¨æ™‚é–“è®ŠåŒ–çš„ BPM é™£åˆ—
-    %   time_axis_bpm - å°æ‡‰çš„æ™‚é–“è»¸ (ä»¥çª—å£ä¸­å¿ƒé»ç‚ºæº–)
+function [seg_90th, bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, total_samples, gap_mask, Fs_target)
+    % ³z¹L·Æ°Êµ¡¤f»P P2P ¶¡¹j­pºâ°ÊºA©I§lÀW²v (BPM)
+    % ¿é¤J:
+    %   true_peak_idx - ¦³®Ä©I§l³»ÂIªº¯Á¤Ş­È°}¦C
+    %   total_samples - ­ì©l°T¸¹ªºÁ`±Ä¼ËÂI¼Æ
+    % ¿é¥X:
+    %   bpm_timeline  - ÀH®É¶¡ÅÜ¤Æªº BPM °}¦C
+    %   time_axis_bpm - ¹ïÀ³ªº®É¶¡¶b (¥Hµ¡¤f¤¤¤ßÂI¬°·Ç)
 
-    fs = 200;
-    peak_times = true_peak_idx / fs;
-    total_time = total_samples / fs;
+    if nargin < 4, Fs_target = 40; end
+    peak_times = true_peak_idx / Fs_target;
+    total_time = total_samples / Fs_target;
 
-    % 1. 20ç§’æ»‘å‹•çª—å£ï¼Œ1ç§’æ­¥é•·
+    % 1. 20¬í·Æ°Êµ¡¤f¡A1¬í¨Bªø
     window_size = 20; 
     step_size = 1;    
     t_starts = 0:step_size:(total_time - window_size);
     
-    bpm_timeline = NaN(1, length(t_starts)); % é è¨­ç‚º NaN
+    bpm_timeline = NaN(1, length(t_starts)); % ¹w³]¬° NaN
     time_axis_bpm = t_starts + (window_size / 2);
 
-    % 2. éæ­·çª—å£è¨ˆç®—
+    % 2. ¹M¾úµ¡¤f­pºâ
     for i = 1:length(t_starts)
         t_s = t_starts(i);
         t_e = t_s + window_size;
         
-        % æå–çª—å£å…§çš„å³°å€¼
+        % ´«ºâ·í«e 20 ¬íµ¡¤f¹ïÀ³ªº­«±Ä¼ËÂI¯Á¤Ş
+        idx_start = max(1, round(t_s * Fs_target) + 1);
+        idx_end = min(total_samples, round(t_e * Fs_target));
+        
+        % º²Â_¾÷¨î¡G­Y¦¹µ¡¤f¤º¶W¹L 25% ªº®É¶¡Äİ©ó¤j­±¿n¥á¥]¡A¸Ó®É¬q©ñ±ó­pºâ («O«ù NaN)
+        if mean(gap_mask(idx_start:idx_end)) > 0.25
+            continue; 
+        end
+        
+        % ´£¨ú¸¨¦b¦¹®É¶¡µ¡¤f¤ºªº³»ÂI®É¶¡
         p_in_w = peak_times(peak_times >= t_s & peak_times <= t_e);
         
-        % 3. ç•°å¸¸è™•ç†ï¼šè‡³å°‘éœ€è¦ 2 å€‹å³°å€¼æ‰èƒ½è¨ˆç®—é–“éš”
+        % 3. ²§±`³B²z¡G¦Ü¤Ö»İ­n 2 ­Ó®p­È¤~¯à­pºâ¶¡¹j
         if length(p_in_w) >= 2
             p2p_intervals = diff(p_in_w);
             Tp2p = mean(p2p_intervals);
@@ -35,5 +44,15 @@ function [bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, to
         end
     end
     
-    fprintf('BPM è¨ˆç®—å®Œæˆï¼æˆåŠŸç”¢å‡ºéš¨æ™‚é–“è®ŠåŒ–çš„å‘¼å¸ç‡æ›²ç·šã€‚\n');
+%     disp(bpm_timeline)
+    
+    % ­pºâ·í«e°Ï¬qªº 90th ¦Ê¤À¦ì
+    valid_bpm_seg = bpm_timeline(bpm_timeline >= 5 & bpm_timeline <= 40);
+    if ~isempty(valid_bpm_seg)
+        seg_90th = prctile(valid_bpm_seg, 90);
+    else
+        seg_90th = NaN; % ­Y¸Ó°Ï¬qµL¦³®Ä¸ê®Æ«hµ¹¤© NaN
+    end
+    
+    fprintf('°ÊºA BPM ­pºâ§¹²¦¡C\n');
 end

@@ -1,18 +1,20 @@
-% ===== é‡å°æ‰€æœ‰ seg å€æ®µæª”æ¡ˆçš„é€£çºŒç¡çœ ç›£æ¸¬ =====
+% ===== °w¹ï©Ò¦³ seg °Ï¬qÀÉ®×ªº³sÄòºÎ¯vºÊ´ú =====
 clear; clc; close all;
 
-% 1. ç’°å¢ƒè¨­å®šèˆ‡åƒæ•¸åˆå§‹åŒ–
-% è¨­å®šè³‡æ–™è·¯å¾‘
-data_folder = 'C:\Users\Admin\OneDrive\Documents\MATLAB\WiFi_sensing\MATLAB\Frequency_Calculation_2015\sleep004_200hz_390min_0427\';
+% 1. Àô¹Ò³]©w»P°Ñ¼Æªì©l¤Æ
+% ³]©w¸ê®Æ¸ô®|
+data_folder = 'D:\¤j¾Ç¸ê®Æ\sleep_dataset\sleep011_200hz_306min_0705';
+Fs_orig = 200;
+Fs_target = 40; 
 
-% æª¢ç´¢è³‡æ–™å¤¾å…§æ‰€æœ‰åŒ…å« 'seg' å­—çœ¼çš„ .dat æª”æ¡ˆ
+% ÀË¯Á¸ê®Æ§¨¤º©Ò¦³¥]§t 'seg' ¦r²´ªº .dat ÀÉ®×
 file_pattern = fullfile(data_folder, '*seg*.dat');
 file_list = dir(file_pattern);
 num_files = length(file_list);
 
-if num_files == 0, error('æ‰¾ä¸åˆ°æŒ‡å®šçš„è³‡æ–™æª”æ¡ˆï¼'); end
+if num_files == 0, error('§ä¤£¨ì«ü©wªº¸ê®ÆÀÉ®×¡I'); end
 
-% æª”æ¡ˆæ’åºï¼šç¢ºä¿å€æ®µæª”æ¡ˆæŒ‰ç·¨è™Ÿ (seg1, seg2...) é †åºè™•ç†
+% ÀÉ®×±Æ§Ç¡G½T«O°Ï¬qÀÉ®×«ö½s¸¹ (seg1, seg2...) ¶¶§Ç³B²z
 seg_numbers = zeros(1, num_files);
 for k = 1:num_files
     tokens = regexp(file_list(k).name, 'seg(\d+)', 'tokens');
@@ -21,138 +23,141 @@ end
 [~, sort_idx] = sort(seg_numbers);
 file_list = file_list(sort_idx);
 
-% åˆå§‹åŒ–å…¨å±€è®Šæ•¸
+% ªì©l¤Æ¥ş§½ÅÜ¼Æ
 all_bpm = []; all_time = []; 
 all_motion_flags = []; all_motion_time = [];
-current_offset = 0; % æ™‚é–“åç§»é‡ï¼ˆç§’ï¼‰
+current_offset = 0; % ®É¶¡°¾²¾¶q¡]¬í¡^
+all_90th_percentile = []; % ¨C­Ó°Ï¬qªº 90th ¦Ê¤À¦ì
 
-set(0, 'DefaultFigureVisible', 'off'); % è¿´åœˆä¸­ä¸é¡¯ç¤ºåœ–åƒä»¥åŠ é€Ÿè™•ç†
-fprintf('é–‹å§‹è™•ç† %d å€‹æª”æ¡ˆå€æ®µ (åŠ å…¥é«”å‹•åµæ¸¬èˆ‡è¨Šè™Ÿè™•ç†)...\n', num_files);
+set(0, 'DefaultFigureVisible', 'off'); % °j°é¤¤¤£Åã¥Ü¹Ï¹³¥H¥[³t³B²z
+fprintf('¶}©l³B²z %d ­ÓÀÉ®×°Ï¬q (¥[¤JÅé°Ê°»´ú»P°T¸¹³B²z)...\n', num_files);
 
-%% 2. æ ¸å¿ƒè¨Šè™Ÿè™•ç†è¿´åœˆ
+%% 2. ®Ö¤ß°T¸¹³B²z°j°é
 for i = 1:num_files
     filename = fullfile(data_folder, file_list(i).name);
     try
-        % è®€å– Intel 5300 CSI åŸå§‹æ•¸æ“š
-        [csi_matrix, ~, ~] = read_intel5300_dat(filename);
+        % Åª¨ú Intel 5300 CSI ­ì©l¼Æ¾Ú
+        [csi_matrix, timestamp_sec, ~] = read_intel5300_dat(filename);
         
-        % è¨Šè™Ÿé è™•ç†ï¼šè¨ˆç®—å¹…åº¦ (Amplitude) èˆ‡ç›¸ä½ (Phase)
+        % §Ü²VÅ|§C³qÂoªi»P§¡¤Ã­«±Ä¼Ë (¿W¥ß¼Ò²Õ) (csi_resampled : [N_uniform,30,2,3])
+        [csi_matrix, t_uniform, gap_mask] = resample_csi_data(csi_matrix, timestamp_sec, Fs_target, Fs_orig);
+        
+        % °T¸¹¹w³B²z¡G­pºâ´T«× (Amplitude) »P¬Û¦ì (Phase)
         [amp_f, phase_f] = process_csi_signal(csi_matrix);
         
-        % ä¸²æµé¸æ“‡ï¼šæŒ‘é¸å‘¼å¸ç‰¹å¾µæœ€æ˜é¡¯çš„å­è¼‰æ³¢ (Subcarrier)
-        [~, best_sig, ~] = select_respiration_stream(amp_f, phase_f);
+        % ¦ê¬y¿ï¾Ü¡G¬D¿ï©I§l¯S¼x³Ì©úÅãªº¤l¸üªi (Subcarrier)
+        [~, best_sig, ~] = select_respiration_stream(amp_f, phase_f, Fs_target);
         
-        % å‘¼å¸å³°å€¼æª¢æ¸¬
-        [peak_idx, ~] = detect_respiration_peaks(best_sig);
+        % ©I§l®p­ÈÀË´ú
+        [peak_idx, ~] = detect_respiration_peaks(best_sig, gap_mask, Fs_target);
         
-        % é«”å‹•åµæ¸¬ï¼šè­˜åˆ¥å—è©¦è€…æ˜¯å¦æœ‰å¤§å¹…åº¦ç¿»èº«æˆ–å‹•ä½œ
-        [~, m_flags, m_time] = detect_body_motion(amp_f, 200);
-        
-        % è¨ˆç®—å‹•æ…‹å‘¼å¸ç‡ (BPM)
+        % ­pºâ°ÊºA©I§l²v (BPM)
         total_samples = length(best_sig);
-        [bpm_seg, time_seg] = calculate_dynamic_bpm(peak_idx, total_samples);
+        [seg_90th, bpm_seg, time_seg] = calculate_dynamic_bpm(peak_idx, total_samples, gap_mask, Fs_target);
         
-        % åˆä½µæ•¸æ“šï¼šå°‡ç•¶å‰å€æ®µçµæœåŠ å…¥å…¨å±€é™£åˆ—
+        % ¦X¨Ö¼Æ¾Ú¡G±N·í«e°Ï¬qµ²ªG¥[¤J¥ş§½°}¦C
         all_bpm = [all_bpm, bpm_seg];
         all_time = [all_time, time_seg + current_offset];
+        all_90th_percentile = [all_90th_percentile, seg_90th];
         
-        % åˆä½µé«”å‹•åµæ¸¬çµæœ
-        all_motion_flags = [all_motion_flags, m_flags];
-        col_m_flags = m_flags(:); % ç¢ºä¿å¾ŒçºŒå°é½Šä½¿ç”¨
-        all_motion_time = [all_motion_time, m_time + current_offset];
-        
-        % æ›´æ–°ä¸‹ä¸€å€æ®µçš„èµ·å§‹æ™‚é–“åç§» (å‡è¨­æ¡æ¨£ç‡ 200Hz)
-        current_offset = current_offset + (total_samples / 200);
+        % §ó·s¤U¤@°Ï¬qªº°_©l®É¶¡°¾²¾
+        current_offset = current_offset + (total_samples / Fs_target);
         clear csi_matrix amp_f phase_f best_sig;
-    catch
-        fprintf('è­¦å‘Šï¼šè™•ç†æª”æ¡ˆ %s æ™‚ç™¼ç”ŸéŒ¯èª¤ï¼Œè·³éè©²å€æ®µã€‚\n', file_list(i).name);
+    catch ME
+        fprintf('Äµ§i¡G³B²zÀÉ®× %s ®Éµo¥Í¿ù»~¡A¸õ¹L¸Ó°Ï¬q¡C\n', file_list(i).name);
+        fprintf('¿ù»~­ì¦]: %s\n', ME.message);
+        fprintf('¿ù»~µo¥Í¦b²Ä %d ¦æ\n', ME.stack(1).line);
     end
 end
 set(0, 'DefaultFigureVisible', 'on');
 
-%% 3. ç‰¹å¾µæå–èˆ‡çµ±è¨ˆåˆ†æ
-% è¨ˆç®—å‘¼å¸è®Šç•°åº¦ (Breathing Variability)
-[var_history, var_time] = calculate_breathing_variability(all_bpm, all_time, 300, 30);
+%% 3. ¯S¼x´£¨ú»P²Î­p¤ÀªR
 
-% è¨ˆç®—å‘¼å¸åé›¢åº¦èˆ‡åŸºæº–ç·š (BPM Deviation & Baseline)
-[dev_history, baseline_bpm] = calculate_bpm_deviation(all_bpm);
+% ­pºâ©I§lÅÜ²§«×
+% ¹ç§A§ï§¹¦A©I¥s§A·sªºµ{¦¡½X
+% ¨Ò¦p : [var_history, var_time] = calculate_breathing_variability(all_bpm, all_time, 300, 30);
 
-%% 4. ç¡çœ éšæ®µé æ¸¬ (SMARS æ¼”ç®—æ³•æ¨¡å‹)
-% ç¶œåˆ BPMã€è®Šç•°åº¦ã€åé›¢åº¦èˆ‡é«”å‹•è³‡è¨Šï¼Œé æ¸¬å››å€‹éšæ®µ (Deep, Core, REM, Awake)
-[sleep_stages, stage_time] = predict_sleep_stages(all_bpm, all_time, var_history, var_time, baseline_bpm, all_motion_flags, all_motion_time);
+% ­pºâ©I§lÀW²v°¾®t (BPM Deviation)
 
-%% 5. çµæœè¦–è¦ºåŒ–
-% ç¹ªè£½åœ–è¡¨ 1ï¼šSMARS ç‰¹å¾µåˆ†æ
-figure('Name', 'SMARS Features Analysis', 'Position', [50, 50, 1000, 850]);
+baseline_bpm = calculate_nrem_baseline(all_bpm); % 1. ­pºâ°ò½u
+bpm_deviation = abs(all_90th_percentile - baseline_bpm); % 2. ­pºâ°¾®t
 
-subplot(3, 1, 1);
-plot(all_time/60, all_bpm, 'b'); hold on;
-plot(xlim, [baseline_bpm baseline_bpm], 'g-', 'LineWidth', 2);
-title(sprintf('Feature 0: Respiration Rate (Baseline = %.1f BPM)', baseline_bpm));
-ylabel('BPM'); grid on; axis tight;
-
-subplot(3, 1, 2);
-plot(var_time, var_history, 'r', 'LineWidth', 1.5); hold on;
-plot(xlim, [0.8 0.8], 'k--'); % REM é–€æª»ç·š
-plot(xlim, [0.45 0.45], 'b--'); % Deep é–€æª»ç·š
-title('Feature 1: Breathing Variability (Variance)');
-ylabel('Variance'); grid on; axis tight;
-
-subplot(3, 1, 3);
-plot(all_time/60, dev_history, 'm'); hold on;
-plot(xlim, [2.0 2.0], 'k--');
-title('Feature 2: Breathing Deviation');
-ylabel('Deviation'); xlabel('Time (min)'); grid on; axis tight;
-
-% ç¹ªè£½åœ–è¡¨ 2ï¼šç¡çœ åœ– (Hypnogram)
-figure('Name', 'Hypnogram', 'Position', [100, 100, 1000, 350]);
-stairs(stage_time, sleep_stages, 'LineWidth', 2.5, 'Color', [0.1 0.4 0.8]);
-
-set(gca, 'YTick', [0 1 2 3]);
-set(gca, 'YTickLabel', {'Deep', 'Core', 'REM', 'Awake'});
-ylim([-0.5 3.5]);
-title('Sleep Prediction: Hypnogram (Integrated with Motion Detection)');
-xlabel('Time (min)'); grid on;
-
-%% 6. çµ±è¨ˆå ±å‘Šè¼¸å‡º
-total_ep = length(sleep_stages);
-fprintf('\n===== ç¡çœ éšæ®µåˆ†æå ±å‘Š =====\n');
-fprintf('æ¸…é†’ (Awake): %.1f%%\n', sum(sleep_stages==3)/total_ep*100);
-fprintf('å¿«é€Ÿå‹•çœ¼æœŸ (REM): %.1f%%\n', sum(sleep_stages==2)/total_ep*100);
-fprintf('æ·ºçœ  (Core): %.1f%%\n', sum(sleep_stages==1)/total_ep*100);
-fprintf('æ·±çœ  (Deep): %.1f%%\n', sum(sleep_stages==0)/total_ep*100);
-
-
-
-% å°ˆé¡Œæ–°å¢ï¼šå°‡çœŸå¯¦é‹ä½œæ•¸æ“šè‡ªå‹•åŒ¯å‡ºç‚ºCSV æª”
-
-fprintf('\nã€è³‡æ–™åº«é€£æ¥éšæ®µã€‘æ­£åœ¨ç”¢ç”Ÿè³‡æ–™åº«åŒ¯å…¥æª”...\n');
-
-% 1. å–å¾—æ¼”ç®—æ³•é æ¸¬çµæœçš„åŸºæº–é•·åº¦ï¼ˆé€šå¸¸ sleep_stages æœ€çŸ­ï¼Œç”¨å®ƒç•¶ä½œ Nï¼‰
-N = length(sleep_stages); 
-
-% 2. å®‰å…¨åˆ‡é½Šæ‰€æœ‰é•·åº¦ï¼Œä¸¦åˆ©ç”¨ (:) å¼·åˆ¶è½‰ç‚ºç›´å‘è¡Œå‘é‡ (Column Vector)
-col_bpm     = all_bpm(1:N);
-col_bpm     = col_bpm(:); 
-
-col_stages  = sleep_stages(1:N);
-col_stages  = col_stages(:);
-
-col_motion  = all_motion_flags(1:N);
-col_motion  = col_motion(:);
-
-% è¨Šè™Ÿå“è³ªé è¨­å¡« 1.0 (ä¹‹å¾Œæœ‰éœ€è¦å¯ä»¥ä¸²æ¥å­è¼‰æ³¢çš„ä¿¡å™ªæ¯”æˆ–è¨Šè™Ÿå¼·åº¦)
-col_quality = ones(N, 1); 
-
-% 3. å°‡å››å€‹ç›´å‘å‘é‡çµåˆæˆä¸€å€‹ N x 4 çš„å¤§å‹æ•¸æ“šçŸ©é™£
-output_matrix = [col_bpm, col_quality, col_stages, col_motion];
-
-% 4. å°‡è³‡æ–™å¤¾è·¯å¾‘èˆ‡æª”åçµåˆï¼Œç¢ºä¿ CSV è¼¸å‡ºåœ¨è·Ÿè³‡æ–™æª”æ¡ˆåŒä¸€å€‹ä½ç½®ï¼Œæ–¹ä¾¿ Python è®€å–
-output_csv_path = fullfile(data_folder, 'real_breathing_output.csv');
-
-% 5. å¯«å…¥ CSV æª”æ¡ˆ
-csvwrite(output_csv_path, output_matrix);
-
-fprintf('çœŸå¯¦ç›£æ¸¬æ•¸æ“šå·²æˆåŠŸè½‰ç½®ï¼\n');
-fprintf('æª”æ¡ˆä½ç½®: %s\n', output_csv_path);
-fprintf('æç¤ºï¼šç¾Python è…³æœ¬è®€å–é€™å€‹ CSV æª”æ¡ˆåŒ¯å…¥ sleep.db å›‰ï¼\n');
+% %% 4. ºÎ¯v¶¥¬q¹w´ú (SMARS ºtºâªk¼Ò«¬)
+% % ºî¦X BPM¡BÅÜ²§«×¡B°¾Â÷«×»PÅé°Ê¸ê°T¡A¹w´ú¥|­Ó¶¥¬q (Deep, Core, REM, Awake)
+% [sleep_stages, stage_time] = predict_sleep_stages(all_bpm, all_time, var_history, var_time, baseline_bpm, all_motion_flags, all_motion_time);
+% 
+% %% 5. µ²ªGµøÄ±¤Æ
+% % Ã¸»s¹Ïªí 1¡GSMARS ¯S¼x¤ÀªR
+% figure('Name', 'SMARS Features Analysis', 'Position', [50, 50, 1000, 850]);
+% 
+% subplot(3, 1, 1);
+% plot(all_time/60, all_bpm, 'b'); hold on;
+% plot(xlim, [baseline_bpm baseline_bpm], 'g-', 'LineWidth', 2);
+% title(sprintf('Feature 0: Respiration Rate (Baseline = %.1f BPM)', baseline_bpm));
+% ylabel('BPM'); grid on; axis tight;
+% 
+% subplot(3, 1, 2);
+% plot(var_time, var_history, 'r', 'LineWidth', 1.5); hold on;
+% plot(xlim, [0.8 0.8], 'k--'); % REM ªùÂe½u
+% plot(xlim, [0.45 0.45], 'b--'); % Deep ªùÂe½u
+% title('Feature 1: Breathing Variability (Variance)');
+% ylabel('Variance'); grid on; axis tight;
+% 
+% subplot(3, 1, 3);
+% plot(all_time/60, dev_history, 'm'); hold on;
+% plot(xlim, [2.0 2.0], 'k--');
+% title('Feature 2: Breathing Deviation');
+% ylabel('Deviation'); xlabel('Time (min)'); grid on; axis tight;
+% 
+% % Ã¸»s¹Ïªí 2¡GºÎ¯v¹Ï (Hypnogram)
+% figure('Name', 'Hypnogram', 'Position', [100, 100, 1000, 350]);
+% stairs(stage_time, sleep_stages, 'LineWidth', 2.5, 'Color', [0.1 0.4 0.8]);
+% 
+% set(gca, 'YTick', [0 1 2 3]);
+% set(gca, 'YTickLabel', {'Deep', 'Core', 'REM', 'Awake'});
+% ylim([-0.5 3.5]);
+% title('Sleep Prediction: Hypnogram (Integrated with Motion Detection)');
+% xlabel('Time (min)'); grid on;
+% 
+% %% 6. ²Î­p³ø§i¿é¥X
+% total_ep = length(sleep_stages);
+% fprintf('\n===== ºÎ¯v¶¥¬q¤ÀªR³ø§i =====\n');
+% fprintf('²M¿ô (Awake): %.1f%%\n', sum(sleep_stages==3)/total_ep*100);
+% fprintf('§Ö³t°Ê²´´Á (REM): %.1f%%\n', sum(sleep_stages==2)/total_ep*100);
+% fprintf('²L¯v (Core): %.1f%%\n', sum(sleep_stages==1)/total_ep*100);
+% fprintf('²`¯v (Deep): %.1f%%\n', sum(sleep_stages==0)/total_ep*100);
+% 
+% 
+% 
+% % ±MÃD·s¼W¡G±N¯u¹ê¹B§@¼Æ¾Ú¦Û°Ê¶×¥X¬°CSV ÀÉ
+% 
+% fprintf('\n¡i¸ê®Æ®w³s±µ¶¥¬q¡j¥¿¦b²£¥Í¸ê®Æ®w¶×¤JÀÉ...\n');
+% 
+% % 1. ¨ú±oºtºâªk¹w´úµ²ªGªº°ò·Çªø«×¡]³q±` sleep_stages ³Ìµu¡A¥Î¥¦·í§@ N¡^
+% N = length(sleep_stages); 
+% 
+% % 2. ¦w¥ş¤Á»ô©Ò¦³ªø«×¡A¨Ã§Q¥Î (:) ±j¨îÂà¬°ª½¦V¦æ¦V¶q (Column Vector)
+% col_bpm     = all_bpm(1:N);
+% col_bpm     = col_bpm(:); 
+% 
+% col_stages  = sleep_stages(1:N);
+% col_stages  = col_stages(:);
+% 
+% col_motion  = all_motion_flags(1:N);
+% col_motion  = col_motion(:);
+% 
+% % °T¸¹«~½è¹w³]¶ñ 1.0 (¤§«á¦³»İ­n¥i¥H¦ê±µ¤l¸üªiªº«H¾¸¤ñ©Î°T¸¹±j«×)
+% col_quality = ones(N, 1); 
+% 
+% % 3. ±N¥|­Óª½¦V¦V¶qµ²¦X¦¨¤@­Ó N x 4 ªº¤j«¬¼Æ¾Ú¯x°}
+% output_matrix = [col_bpm, col_quality, col_stages, col_motion];
+% 
+% % 4. ±N¸ê®Æ§¨¸ô®|»PÀÉ¦Wµ²¦X¡A½T«O CSV ¿é¥X¦b¸ò¸ê®ÆÀÉ®×¦P¤@­Ó¦ì¸m¡A¤è«K Python Åª¨ú
+% output_csv_path = fullfile(data_folder, 'real_breathing_output.csv');
+% 
+% % 5. ¼g¤J CSV ÀÉ®×
+% csvwrite(output_csv_path, output_matrix);
+% 
+% fprintf('¯u¹êºÊ´ú¼Æ¾Ú¤w¦¨¥\Âà¸m¡I\n');
+% fprintf('ÀÉ®×¦ì¸m: %s\n', output_csv_path);
+% fprintf('´£¥Ü¡G²{Python ¸}¥»Åª¨ú³o­Ó CSV ÀÉ®×¶×¤J sleep.db Åo¡I\n');
