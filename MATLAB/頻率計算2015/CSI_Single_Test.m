@@ -1,115 +1,189 @@
 clear; clc; close all;
 
-% ³]©w°ò¥»°Ñ¼Æ (¤w­×¥¿ÀÉ®×¸ô®|¶}ÀY¤Ş¸¹)
+% è¨­å®šåŸºæœ¬åƒæ•¸ (å·²ä¿®æ­£æª”æ¡ˆè·¯å¾‘é–‹é ­å¼•è™Ÿ)
 filename = 'C:\Users\fupei\Desktop\csi\data\flip\flip50hzR_20s_002.dat';
 Fs_orig = 50;
-Fs_target = 20;                     % ¥Ø¼Ğ§¡¤Ã±Ä¼Ë²v (Hz)¡A¤£¼g¹w³]20Hz
+Fs_target = 20;                     % ç›®æ¨™å‡å‹»æ¡æ¨£ç‡ (Hz)ï¼Œä¸å¯«é è¨­20Hz
 
-fprintf('====== ¨t²Î±Ò°Ê¡G¶}©l¥Í²z°T¸¹µÑ¨ú¶q´ú ======\n');
+fprintf('====== ç³»çµ±å•Ÿå‹•ï¼šé–‹å§‹ç”Ÿç†è¨Šè™Ÿèƒå–é‡æ¸¬ ======\n');
 
-% ¨BÆJ 1: Åª¨ú­ì©l©³¼h¸ê®Æ (¦Û°Ê´«ºâ¬°¬í¼Æ)
+% æ­¥é©Ÿ 1: è®€å–åŸå§‹åº•å±¤è³‡æ–™ (è‡ªå‹•æ›ç®—ç‚ºç§’æ•¸)
 [csi_matrix, timestamp_sec, rssi] = read_intel5300_dat(filename);
 
-% ¨BÆJ 2: §Ü²VÅ|§C³qÂoªi»P§¡¤Ã­«±Ä¼Ë (¿W¥ß¼Ò²Õ)
-% ¦¹³B½Õ¥Î¤W¤è«Ø¥ßªº¿W¥ß­«±Ä¼Ë¼Ò²Õ¡A¥Í¦¨§¡¤Ã¯x°}»P¦a´à¦¡¥á¥]¾B¸n
+% æ­¥é©Ÿ 2: æŠ—æ··ç–Šä½é€šæ¿¾æ³¢èˆ‡å‡å‹»é‡æ¡æ¨£ (ç¨ç«‹æ¨¡çµ„)
+% æ­¤è™•èª¿ç”¨ä¸Šæ–¹å»ºç«‹çš„ç¨ç«‹é‡æ¡æ¨£æ¨¡çµ„ï¼Œç”Ÿæˆå‡å‹»çŸ©é™£èˆ‡åœ°æ¯¯å¼ä¸ŸåŒ…é®ç½©
 [csi_resampled, t_uniform, gap_mask] = resample_csi_data(csi_matrix, timestamp_sec, Fs_target, Fs_orig);
 
-% ¨BÆJ 3: °T¸¹¯S¼x´£¨ú (¦@³m¬Û­¼ + PCA ­°ºû + ¦Û¾AÀ³ SG Âoªi)
+% æ­¥é©Ÿ 3: è¨Šè™Ÿç‰¹å¾µæå– (å…±è»›ç›¸ä¹˜ + PCA é™ç¶­ + è‡ªé©æ‡‰ SG æ¿¾æ³¢)
 [amp_pcs_norm, phase_pcs_norm] = process_csi_signal(csi_resampled, Fs_target);
 
 % =========================================================================
-% ·s¼W¨BÆJ: Â½¨­°Ê§@°»´ú
+% æ­¥é©Ÿ4: ç¿»èº«å‹•ä½œåµæ¸¬
 % =========================================================================
-% §Q¥Î­«±Ä¼Ë«áªº CSI ¯x°}¡A¦Û°ÊÃÑ§OÂ½¨­°Ê§@ªº®É¶¡°Ï¬q
+% åˆ©ç”¨é‡æ¡æ¨£å¾Œçš„ CSI çŸ©é™£ï¼Œè‡ªå‹•è­˜åˆ¥ç¿»èº«å‹•ä½œçš„æ™‚é–“å€æ®µ
 [events, var_feat] = detect_rollover(amp_pcs_norm, Fs_target, 'WinSec', 3, 'ThreshStd', 0.6);
 % =========================================================================
 
-% ¨BÆJ 4: 6¸ô PCA ¦ê¬y³Ì¨Î©I§l¯S¼x¦Û°Ê¿ï¾Ü
+% æ­¥é©Ÿ 5: 6è·¯ PCA ä¸²æµæœ€ä½³å‘¼å¸ç‰¹å¾µè‡ªå‹•é¸æ“‡
 [best_name, best_sig, best_fpsd] = select_respiration_stream(amp_pcs_norm, phase_pcs_norm, Fs_target);
 
-% ¨BÆJ 5: ºë²Ó®p­È°»´ú (µ²¦X¦Û¾AÀ³¼Ğ·Ç®tìH­È»P¥á¥]¾B¸nÁp¨¾)
-[true_peak_idx, true_peak_vals] = detect_respiration_peaks(best_sig, gap_mask, Fs_target);
+% æ­¥é©Ÿ 6: ç²¾ç´°å³°å€¼åµæ¸¬ (çµåˆè‡ªé©æ‡‰æ¨™æº–å·®é–¾å€¼èˆ‡ä¸ŸåŒ…é®ç½©è¯é˜²)
+best_sig_column = best_sig(:);
+if any(isnan(best_sig_column)), best_sig_column(isnan(best_sig_column)) = 0; end
 
-% --- ²§±`³B²z¡G¦³®Ä³»ÂI¤£¨¬§P©w ---
+[true_peak_idx, true_peak_vals] = detect_respiration_peaks(best_sig_column, gap_mask, Fs_target);
+
+% --- ç•°å¸¸è™•ç†ï¼šæœ‰æ•ˆé ‚é»ä¸è¶³åˆ¤å®š ---
 if length(true_peak_idx) < 2
-    warning('¡i¨t²Î§iÄµ¡j¥¼°»´ú¨ìÃ­©w©I§l°T¸¹¡I(­ì¦]¡G¦³®Ä©I§l³»ÂI¹L¤Ö¡AµLªk­pºâ©I§l²v)');
+    warning('ã€ç³»çµ±å‘Šè­¦ã€‘æœªåµæ¸¬åˆ°ç©©å®šå‘¼å¸è¨Šè™Ÿï¼(åŸå› ï¼šæœ‰æ•ˆå‘¼å¸é ‚é»éå°‘ï¼Œç„¡æ³•è¨ˆç®—å‘¼å¸ç‡)');
     return;
 end
 
-% ¨BÆJ 6: °ÊºA©I§l²v­pºâ (20¬í·Æ°Êµ¡¤f + ¥á¥]¦û¤ñº²Â_)
-[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, length(best_sig), gap_mask, Fs_target);
-
+% æ­¥é©Ÿ 7: å‹•æ…‹å‘¼å¸ç‡è¨ˆç®— (20ç§’æ»‘å‹•çª—å£ + ä¸ŸåŒ…ä½”æ¯”ç†”æ–·)
+[bpm_timeline, time_axis_bpm] = calculate_dynamic_bpm(true_peak_idx, length(best_sig_column), gap_mask, Fs_target);
 
 % =========================================================================
-% ¨BÆJ 7: ³Ì²×¥Í²z¶q´úºî¦XµøÄ±¤Æ (§¹¾ã­×´_­×¸Éª©¡A¥ş­±Åã¥Ü©Ò¦³±¼¥])
+% æ­¥é©Ÿ 8: 30s è‡ªé©æ‡‰ FFT æ»‘å‹•è¦–çª—é »åŸŸä¼°è¨ˆ (15% ç†”æ–·æ©Ÿåˆ¶)
 % =========================================================================
-figure('Name', 'CSI ©I§l¥Í²zºÊ´ú³Ì²×¦¨ªG³ø§i', 'Position', [100, 100, 1000, 600]);
+fprintf('\n====== åŸ·è¡Œ 30 ç§’è‡ªé©æ‡‰ FFT æ»‘å‹•è¦–çª—é »åŸŸä¼°ç®— ======\n');
 
-% ­pºâÁ`¥á¥]²v
+window_sec = 30;                     
+step_sec   = 30;                       
+window_len = window_sec * Fs_target; 
+step_len   = step_sec * Fs_target;
+
+total_points  = length(best_sig_column);
+epoch_summary = []; 
+epoch_idx     = 1;
+
+for i = 1:step_len:(total_points - window_len + 1)
+    
+    current_sig  = best_sig_column(i : i + window_len - 1);
+    current_gap  = gap_mask(i : i + window_len - 1);
+    current_time = t_uniform(i) + window_sec/2; 
+    
+    epoch_drop_rate = (sum(current_gap) / window_len) * 100;
+    
+    % 15% ç†”æ–·æ©Ÿåˆ¶
+    if epoch_drop_rate > 15.0
+        fprintf('[å€æ®µ %2d] æ™‚é–“: %5.1f ç§’ | æ‰åŒ…ç‡: %5.2f%% -> âš ï¸ è§¸ç™¼ç†”æ–·ï¼æ•¸æ“šå—æåš´é‡ï¼Œè·³éæœ¬å€æ®µã€‚\n', ...
+            epoch_idx, current_time, epoch_drop_rate);
+        epoch_idx = epoch_idx + 1;
+        continue; 
+    end
+    
+    Nfft = 2^nextpow2(window_len * 4);   
+    Y = fft(detrend(current_sig), Nfft); 
+    P2 = abs(Y / window_len); P1 = P2(1 : Nfft/2 + 1); P1(2:end-1) = 2 * P1(2:end-1);
+    f = Fs_target * (0 : (Nfft/2)) / Nfft; 
+    
+    breath_idx = find(f >= 0.15 & f <= 0.5);
+    [~, max_idx] = max(P1(breath_idx));
+    
+    best_breath_freq = f(breath_idx(max_idx));
+    epoch_fft_bpm = best_breath_freq * 60;
+    
+    epoch_summary = [epoch_summary; epoch_idx, current_time, epoch_fft_bpm, epoch_drop_rate];
+    
+    fprintf('[å€æ®µ %2d] æ™‚é–“: %5.1f ç§’ | æ‰åŒ…ç‡: %5.2f%% (å®‰å…¨) -> ğŸ“ˆ FFT ä¼°ç®—å‘¼å¸ç‡: %.2f BPM\n', ...
+        epoch_idx, current_time, epoch_drop_rate, epoch_fft_bpm);
+    
+    epoch_idx = epoch_idx + 1;
+end
+
+if ~isempty(epoch_summary)
+    fft_mean_bpm = mean(epoch_summary(:, 3));
+else
+    fft_mean_bpm = NaN;
+end
+
+% =========================================================================
+% æ­¥é©Ÿ 9: æœ€çµ‚ç”Ÿç†é‡æ¸¬ç¶œåˆè¦–è¦ºåŒ– (å®Œæ•´ä¿®å¾©ä¿®è£œç‰ˆï¼Œå…¨é¢é¡¯ç¤ºæ‰€æœ‰æ‰åŒ… )
+% =========================================================================
+figure('Name', 'CSI å‘¼å¸ç”Ÿç†ç›£æ¸¬æœ€çµ‚æˆæœå ±å‘Š', 'Position', [100, 100, 1000, 600]);
+
+% è¨ˆç®—ç¸½ä¸ŸåŒ…ç‡
 total_gap_ratio = (sum(gap_mask) / length(gap_mask)) * 100;
 
 % -------------------------------------------------------------------------
-% ¤l¹Ï 1: ©I§l®É°ì°T¸¹ªi§Î»Pºë·Ç®p­È¼Ğ°O (¥ş­±±j¤Æ±¼¥]Åã¥Ü¡B·s¼WÂ½¨­¼Ğ¥Ü)
+% å­åœ– 1: å‘¼å¸æ™‚åŸŸè¨Šè™Ÿæ³¢å½¢èˆ‡ç²¾æº–å³°å€¼æ¨™è¨˜ (å…¨é¢å¼·åŒ–æ‰åŒ…é¡¯ç¤ºã€æ–°å¢ç¿»èº«æ¨™ç¤º)
 % -------------------------------------------------------------------------
 subplot(2,1,1);
 
-% ¥ı°ÊºAºâ¥X°T¸¹ªº¯u¹ê½d³ò¡A¥Î¨Ó·í§@­I´º³±¼vªº°ª«×»P Y ¶b·¥­­
+% å…ˆå‹•æ…‹ç®—å‡ºè¨Šè™Ÿçš„çœŸå¯¦ç¯„åœï¼Œç”¨ä¾†ç•¶ä½œèƒŒæ™¯é™°å½±çš„é«˜åº¦èˆ‡ Y è»¸æ¥µé™
 yl_sig = [-3, 3]; 
 if ~isempty(best_sig)
     yl_sig = [min(best_sig) - 0.5, max(best_sig) + 0.5]; 
 end
 
-% ´M§ä gap_mask ªº³sÄò°Ï¶¡¡]±q false ÅÜ true ¥Nªí±¼¥]¶}©l¡Atrue ÅÜ false ¥Nªíµ²§ô¡^
+% å°‹æ‰¾ gap_mask çš„é€£çºŒå€é–“ï¼ˆå¾ false è®Š true ä»£è¡¨æ‰åŒ…é–‹å§‹ï¼Œtrue è®Š false ä»£è¡¨çµæŸï¼‰
 gap_diff = diff([0; gap_mask; 0]);
 gap_starts = find(gap_diff == 1);
 gap_ends = find(gap_diff == -1) - 1;
 
-% ±N©Ò¦³¤j¤p±¼¥]°Ï¶¡¶î¤W²L¯»¬õ¦â³±¼v
+% å°‡æ‰€æœ‰å¤§å°æ‰åŒ…å€é–“å¡—ä¸Šæ·ºç²‰ç´…è‰²é™°å½±
 for g = 1:length(gap_starts)
     patch([t_uniform(gap_starts(g)) t_uniform(gap_ends(g)) t_uniform(gap_ends(g)) t_uniform(gap_starts(g))], ...
           [yl_sig(1) yl_sig(1) yl_sig(2) yl_sig(2)], [1 0.85 0.85], 'EdgeColor', 'none', 'FaceAlpha', 0.6);
     hold on;
 end
 
-% ¦b®É°ì¹Ï³Ì©³³¡¡AÂI¥X¡u¹ê»Ú¦¬¨ìªººô¥d«Ê¥]®É¶¡ÂI¡v¡]¦Ç¦âÂI¡^
+% åœ¨æ™‚åŸŸåœ–æœ€åº•éƒ¨ï¼Œé»å‡ºã€Œå¯¦éš›æ”¶åˆ°çš„ç¶²å¡å°åŒ…æ™‚é–“é»ã€ï¼ˆç°è‰²é»ï¼‰
 if ~isempty(timestamp_sec)
     plot(timestamp_sec, zeros(size(timestamp_sec)) + yl_sig(1) + 0.1, '.', 'Color', [0.6 0.6 0.6], 'MarkerSize', 4);
     hold on;
 end
 
-% Ã¸»s¥D©I§lªi§Î»P¬õÂIªi®p (½T«OÃ¸¹Ï¶¶§Ç¦b Patch ¤§«á¡A¤~¤£·|³Q³±¼v»\¦í)
+% ç¹ªè£½ä¸»å‘¼å¸æ³¢å½¢èˆ‡ç´…é»æ³¢å³° (ç¢ºä¿ç¹ªåœ–é †åºåœ¨ Patch ä¹‹å¾Œï¼Œæ‰ä¸æœƒè¢«é™°å½±è“‹ä½)
 plot(t_uniform, best_sig, 'Color', [0 0.447 0.741], 'LineWidth', 1.5); hold on;
 plot(true_peak_idx/Fs_target, true_peak_vals, 'ro', 'MarkerFaceColor', 'r', 'MarkerSize', 6);
 
-% §ó·s¼ĞÃD¡A¥[¤Jºñ®ØÂ½¨­ªº»¡©ú
-title(['¡i®É°ìªi§Î¡j³q¹D: ', best_name, ' (¬õÂI:©I§l³»ÂI | ºñµê½u®Ø:Â½¨­°Ï¬q | ¯»¬õ³±¼v:±¼¥]°Ï¶¡)'], 'FontSize', 12);
-xlabel('®É¶¡ (¬í)'); ylabel('¼Ğ·Ç¤Æ´T­È');
+% æ›´æ–°æ¨™é¡Œï¼ŒåŠ å…¥ç¶ æ¡†ç¿»èº«çš„èªªæ˜
+title(['ã€æ™‚åŸŸæ³¢å½¢ã€‘é€šé“: ', best_name, ' (ç´…é»:å‘¼å¸é ‚é» | ç¶ è™›ç·šæ¡†:ç¿»èº«å€æ®µ | ç²‰ç´…é™°å½±:æ‰åŒ…å€é–“)'], 'FontSize', 12);
+xlabel('æ™‚é–“ (ç§’)'); ylabel('æ¨™æº–åŒ–å¹…å€¼');
 grid on; axis tight;
 ylim(yl_sig);
 
 % -------------------------------------------------------------------------
-% ¤l¹Ï 2: °ÊºA©I§l²vÅÜ°ÊÁÍ¶Õ¹Ï (BPM Timeline)
+% å­åœ– 2: å‹•æ…‹å‘¼å¸ç‡è®Šå‹•è¶¨å‹¢åœ– (BPM Timeline)
 % -------------------------------------------------------------------------
 subplot(2,1,2);
 plot(time_axis_bpm, bpm_timeline, 'm-s', 'LineWidth', 2, 'MarkerSize', 5, 'MarkerFaceColor', 'm'); hold on;
 
-% Ã¸»s¥­§¡©I§l²vµê½u
+% ç¹ªè£½å¹³å‡å‘¼å¸ç‡è™›ç·š
 mean_bpm = mean(bpm_timeline, 'omitnan');
 ax = gca; 
 x_lim = get(ax, 'XLim');
 line(x_lim, [mean_bpm mean_bpm], 'Color', 'k', 'LineStyle', '--', 'LineWidth', 1.2);
 
-% ²K¥[¥k°¼¼ĞÅÒ¤å¦rµù¸Ñ
-text(x_lim(2), mean_bpm, [' Æ[´ú´Á¥­§¡©I§l²v: ', num2str(mean_bpm, '%.1f'), ' bpm'], ...
+% æ·»åŠ å³å´æ¨™ç±¤æ–‡å­—è¨»è§£
+text(x_lim(2), mean_bpm, [' è§€æ¸¬æœŸå¹³å‡å‘¼å¸ç‡: ', num2str(mean_bpm, '%.1f'), ' bpm'], ...
     'VerticalAlignment', 'middle', 'HorizontalAlignment', 'right', 'FontSize', 10, ...
     'BackgroundColor', 'white', 'EdgeColor', 'none');
 
 ylim([5 45]);
 
-% Åã¥ÜÁ`Åé¸ê°T
-title(['¡i°ÊºA¥Í²zºÊ´ú¡j¹ê®É©I§l²v¨«¶Õ | ¼Æ¾ÚÁ`Åé±¼¥]²v: ', num2str(total_gap_ratio, '%.1f'), '% | ·í«eÀW°ì¦ô­p: ', num2str(best_fpsd*60, '%.1f'), ' bpm'], 'FontSize', 12);
-xlabel('®É¶¡ (¬í)'); ylabel('©I§l²v (BPM)');
+% é¡¯ç¤ºç¸½é«”è³‡è¨Š
+title(['ã€å‹•æ…‹ç”Ÿç†ç›£æ¸¬ã€‘å¯¦æ™‚å‘¼å¸ç‡èµ°å‹¢ | æ•¸æ“šç¸½é«”æ‰åŒ…ç‡: ', num2str(total_gap_ratio, '%.1f'), '% | ç•¶å‰é »åŸŸä¼°è¨ˆ: ', num2str(best_fpsd*60, '%.1f'), ' bpm'], 'FontSize', 12);
+xlabel('æ™‚é–“ (ç§’)'); ylabel('å‘¼å¸ç‡ (BPM)');
 grid on;
 
-% ²×ºİ¾÷ºK­n¿é¥X
-fprintf('====== ¨t²Î¤ÀªR§¹¦¨¡C¿ï©w³q¸ô: %s | Á`Åé±¼¥]²v: %.2f%% | ¥­§¡©I§l²v: %.2f BPM ======\n', best_name, total_gap_ratio, mean_bpm);
+% çµ‚ç«¯æ©Ÿæ‘˜è¦è¼¸å‡º (åŸå§‹æ–‡å­—ä¿æŒä¸è®Š)
+fprintf('====== ç³»çµ±åˆ†æå®Œæˆã€‚é¸å®šé€šè·¯: %s | ç¸½é«”æ‰åŒ…ç‡: %.2f%% | å¹³å‡å‘¼å¸ç‡: %.2f BPM ======\n', best_name, total_gap_ratio, mean_bpm);
+
+% =========================================================================
+% æ­¥é©Ÿ 9: å‘¼å¸è®Šç•°æ€§æŒ‡æ¨™å ±å‘Šè¼¸å‡º
+% =========================================================================
+rrv_data = calculate_rrv_metrics(true_peak_idx, Fs_target);
+
+if ~isnan(rrv_data.SDNN)
+    fprintf('================== ç”Ÿç†è®Šç•°æ€§ (RRV) åˆ†æå ±å‘Š ==================\n');
+    fprintf(' æ™‚åŸŸæ³¢å³°å¹³å‡å‘¼å¸ç‡   : %.2f BPM\n', mean_bpm);
+    fprintf(' 30ç§’ FFT æ»‘å‹•å¹³å‡å‘¼å¸ç‡: %.2f BPM\n', fft_mean_bpm);
+    fprintf(' ---------------------------------------------------\n');
+    fprintf(' åµæ¸¬åˆ°çš„ç¸½å‘¼å¸æ¬¡æ•¸   : %d æ¬¡\n', rrv_data.Total_Breaths);
+    fprintf(' å¹³å‡å–®æ¬¡å‘¼å¸æ™‚é–“     : %.2f ç§’ (Mean BB)\n', rrv_data.Mean_BB);
+    fprintf(' ç¸½å‘¼å¸è®Šç•°æ€§æŒ‡æ¨™     : %.4f ç§’ (SDNN)\n', rrv_data.SDNN);
+    fprintf(' çŸ­æœŸå¿«é€Ÿå‘¼å¸è®Šç•°æ€§   : %.4f ç§’ (RMSSD)\n', rrv_data.RMSSD);
+    fprintf('===================================================\n');
+end
