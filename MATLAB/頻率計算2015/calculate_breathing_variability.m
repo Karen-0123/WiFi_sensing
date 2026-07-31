@@ -1,38 +1,63 @@
-function [var_timeline, time_axis_var] = calculate_breathing_variability(bpm_timeline, time_axis_bpm, window_size_sec, step_size_sec)
-    % 檢查數據量
-    if length(time_axis_bpm) < 2
-        var_timeline = []; time_axis_var = []; return;
+function [var_history, var_time] = calculate_breathing_variability(all_bpm, all_time, window_sec, step_sec)
+    % 呼吸頻率變異性計算 (10階 Butter 濾波去趨勢 + 視窗歸一化)
+    % 輸入:
+    %   all_bpm     - 瞬時呼吸率數據 (BPM 序列)
+    %   all_time    - 對應的時間軸 (秒)
+    %   window_sec  - 視窗長度 (300 秒)
+    %   step_sec    - 滑動步長 (30 秒)
+    
+    if nargin < 3, window_sec = 300; end
+    if nargin < 4, step_sec = 30; end
+    
+    num_pts = length(all_bpm);
+    var_history = zeros(size(all_bpm));
+    var_time = all_time;
+    
+    % 1. 數據插值處理 (填補 NaN 以便進行 Butterworth 濾波)
+    valid_idx = ~isnan(all_bpm) & all_bpm >= 5 & all_bpm <= 40;
+    if sum(valid_idx) < 10
+        return;
     end
-
-    % 安全計算採樣間隔
-    dt = mean(diff(time_axis_bpm));
-    if dt <= 0, dt = 1; end % 防止無窮大
-    fs_bpm = 1 / dt;
+    bpm_interp = interp1(all_time(valid_idx), all_bpm(valid_idx), all_time, 'pchip', 'extrap');
     
-    win_samples = round(window_size_sec * fs_bpm);
-    step_samples = round(step_size_sec * fs_bpm);
+    % 2. 10 階巴特沃斯低通濾波器去趨勢 (fc = 0.1 Hz)】
+    dt = mean(diff(all_time));
+    if dt <= 0, dt = 1; end
+    fs_bpm = 1 / dt; % bpm_timeline 的採樣率 (Hz)
     
-    total_samples = length(bpm_timeline);
-    num_steps = floor((total_samples - win_samples) / step_samples) + 1;
+    Wn = 0.1 / (fs_bpm / 2);
+    if Wn >= 1, Wn = 0.99; end
     
-    if num_steps <= 0, var_timeline = []; time_axis_var = []; return; end
+    % 使用 padarray 做邊界反射擴充，防止 10 階濾波器在開頭產生邊界失真
+    pad_len = min(100, length(bpm_interp)-1);
+    bpm_padded = padarray(bpm_interp', pad_len, 'replicate', 'both')';
     
-    var_timeline = zeros(1, num_steps);
-    time_axis_var = zeros(1, num_steps);
+    [b, a] = butter(10, Wn, 'low');
+    trend_padded = filtfilt(b, a, bpm_padded);
     
-    for i = 1:num_steps
-        start_idx = (i-1) * step_samples + 1;
-        end_idx = start_idx + win_samples - 1;
+    % 裁切回原始長度
+    trend = trend_padded(pad_len+1 : end-pad_len);
+    
+    % 原始值減去趨勢值 (去趨勢後的呼吸率波動)
+    detrended_bpm = bpm_interp - trend;
+    
+    % 3.300 秒自適應視窗切分、方差計算與歸一化】
+    half_win = window_sec / 2;
+    for k = 1:num_pts
+        t_curr = all_time(k);
         
-        segment = bpm_timeline(start_idx:end_idx);
-        valid_segment = segment(~isnan(segment));
+        % 自適應邊界保護：即便在開頭 (如 t = 15s)，也抓取現有的所有點進行計算，絕不給 0
+        in_win = (all_time >= max(all_time(1), t_curr - half_win)) & ...
+                 (all_time <= min(all_time(end), t_curr + half_win));
+             
+        segment = detrended_bpm(in_win);
         
-        if length(valid_segment) > 5
-            var_timeline(i) = var(detrend(valid_segment));
+        if length(segment) >= 2
+            % 計算方差並除以時段長度 (300) 進行歸一化
+            raw_variance = var(segment);
+            var_history(k) = raw_variance / window_sec;
         else
-            var_timeline(i) = NaN;
+            var_history(k) = var(detrended_bpm) / window_sec;
         end
-        % 轉換為分鐘座標
-        time_axis_var(i) = time_axis_bpm(round((start_idx + end_idx)/2)) / 60;
     end
 end
