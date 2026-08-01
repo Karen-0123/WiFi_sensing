@@ -1,63 +1,77 @@
-function [var_history, var_time] = calculate_breathing_variability(all_bpm, all_time, window_sec, step_sec)
-    % å‘¼å¸é »ç‡è®Šç•°æ€§è¨ˆç®— (10éš Butter æ¿¾æ³¢å»è¶¨å‹¢ + è¦–çª—æ­¸ä¸€åŒ–)
-    % è¼¸å…¥:
-    %   all_bpm     - ç¬æ™‚å‘¼å¸ç‡æ•¸æ“š (BPM åºåˆ—)
-    %   all_time    - å°æ‡‰çš„æ™‚é–“è»¸ (ç§’)
-    %   window_sec  - è¦–çª—é•·åº¦ (300 ç§’)
-    %   step_sec    - æ»‘å‹•æ­¥é•· (30 ç§’)
+function [var_history, var_time] = calculate_breathing_variability(all_bpm, all_time, window_sec, step_sec, target_epochs)
+    % ©I§lÀW²vÅÜ²§©Ê­pºâ (4¶¥ Butter Âoªi¥hÁÍ¶Õ + µøµ¡Âk¤@¤Æ)
+    % ¿é¤J:
+    %    all_bpm       - Àş®É©I§l²v¼Æ¾Ú (BPM §Ç¦C)
+    %    all_time      - ¹ïÀ³ªº®É¶¡¶b (¬í)
+    %    window_sec    - µøµ¡ªø«× (¹w³] 180 ¬í)
+    %    step_sec      - ·Æ°Ê¨Bªø (¹w³] 180 ¬í)
+    %    target_epochs - ¥Ø¼Ğ Epoch ¼Æ¶q (¥i¶Ç¤J¼Æ¦r¦p 102¡A©Î¶Ç¤JÀÉ®×/¯S¼x°}¦C)
     
-    if nargin < 3, window_sec = 300; end
-    if nargin < 4, step_sec = 30; end
+    if nargin < 3 || isempty(window_sec), window_sec = 180; end
+    if nargin < 4 || isempty(step_sec), step_sec = 180; end
     
-    num_pts = length(all_bpm);
-    var_history = zeros(size(all_bpm));
-    var_time = all_time;
+    % ±j¨î±N¿é¤JÂà¬°¦C¦V¶q (N x 1)
+    all_bpm = all_bpm(:);
+    all_time = all_time(:);
     
-    % 1. æ•¸æ“šæ’å€¼è™•ç† (å¡«è£œ NaN ä»¥ä¾¿é€²è¡Œ Butterworth æ¿¾æ³¢)
+    % 1. ¼Æ¾Ú´¡­È³B²z (¶ñ¸É NaN ¥H«K¶i¦æ Butterworth Âoªi)
     valid_idx = ~isnan(all_bpm) & all_bpm >= 5 & all_bpm <= 40;
     if sum(valid_idx) < 10
+        var_history = [];
+        var_time = [];
         return;
     end
     bpm_interp = interp1(all_time(valid_idx), all_bpm(valid_idx), all_time, 'pchip', 'extrap');
+    bpm_interp = bpm_interp(:);
     
-    % 2. 10 éšå·´ç‰¹æ²ƒæ–¯ä½é€šæ¿¾æ³¢å™¨å»è¶¨å‹¢ (fc = 0.1 Hz)ã€‘
-    dt = mean(diff(all_time));
+    % 2. ¤Ú¯S¨U´µ§C³qÂoªi¾¹¥hÁÍ¶Õ (fc = 0.1 Hz)
+    dt = mean(diff(all_time)); % ¥­§¡±Ä¼Ë¶¡¹j (¬í)
     if dt <= 0, dt = 1; end
-    fs_bpm = 1 / dt; % bpm_timeline çš„æ¡æ¨£ç‡ (Hz)
+    fs_bpm = 1 / dt; % ±Ä¼Ë²v (Hz)
     
     Wn = 0.1 / (fs_bpm / 2);
     if Wn >= 1, Wn = 0.99; end
     
-    % ä½¿ç”¨ padarray åšé‚Šç•Œåå°„æ“´å……ï¼Œé˜²æ­¢ 10 éšæ¿¾æ³¢å™¨åœ¨é–‹é ­ç”¢ç”Ÿé‚Šç•Œå¤±çœŸ
+    % ¨Ï¥Î padarray °µÃä¬É¤Ï®gÂX¥R¡A¨¾¤îÃä¬É¥¢¯u
     pad_len = min(100, length(bpm_interp)-1);
-    bpm_padded = padarray(bpm_interp', pad_len, 'replicate', 'both')';
+    bpm_padded = padarray(bpm_interp, pad_len, 'replicate', 'both');
     
-    [b, a] = butter(10, Wn, 'low');
+    % ¨Ï¥Î 4 ¶¥§C³qÂoªi´£¨úÁÍ¶Õ
+    [b, a] = butter(4, Wn, 'low');
     trend_padded = filtfilt(b, a, bpm_padded);
     
-    % è£åˆ‡å›åŸå§‹é•·åº¦
+    % µô¤Á¦^­ì©lªø«×¨Ã¥h°£ÁÍ¶Õ
     trend = trend_padded(pad_len+1 : end-pad_len);
-    
-    % åŸå§‹å€¼æ¸›å»è¶¨å‹¢å€¼ (å»è¶¨å‹¢å¾Œçš„å‘¼å¸ç‡æ³¢å‹•)
     detrended_bpm = bpm_interp - trend;
     
-    % 3.300 ç§’è‡ªé©æ‡‰è¦–çª—åˆ‡åˆ†ã€æ–¹å·®è¨ˆç®—èˆ‡æ­¸ä¸€åŒ–ã€‘
-    half_win = window_sec / 2;
-    for k = 1:num_pts
-        t_curr = all_time(k);
+    % 3. §PÂ_Á` Epoch ¼Æ¶q (¤ä´©¶Ç¤J¼Æ¦r¯Â¶q©Î°}¦C/Cell)
+    if isscalar(target_epochs)
+        num_epochs = target_epochs;
+    else
+        num_epochs = length(target_epochs);
+    end
+    
+    var_history = zeros(num_epochs, 1);
+    var_time = zeros(num_epochs, 1);
+    t_start = all_time(1);
+    
+    % 4. °w¹ï¨C­Ó Epoch ­pºâ¤è®t»PÂk¤@¤Æ
+    for k = 1:num_epochs
+        epoch_t_start = t_start + (k-1) * step_sec;
+        epoch_t_end   = t_start + k * step_sec;
         
-        % è‡ªé©æ‡‰é‚Šç•Œä¿è­·ï¼šå³ä¾¿åœ¨é–‹é ­ (å¦‚ t = 15s)ï¼Œä¹ŸæŠ“å–ç¾æœ‰çš„æ‰€æœ‰é»é€²è¡Œè¨ˆç®—ï¼Œçµ•ä¸çµ¦ 0
-        in_win = (all_time >= max(all_time(1), t_curr - half_win)) & ...
-                 (all_time <= min(all_time(end), t_curr + half_win));
-             
+        % °O¿ı¸Ó Epoch ªº¤¤¤ß®É¶¡ÂW (¤è«KÃ¸¹Ï¹ï»ô)
+        var_time(k) = (epoch_t_start + epoch_t_end) / 2;
+        
+        % §ì¨ú¸Ó 180 ¬í Epoch °Ï¶¡¤ºªº¼Æ¾ÚÂI
+        in_win = (all_time >= epoch_t_start) & (all_time < epoch_t_end);
         segment = detrended_bpm(in_win);
         
         if length(segment) >= 2
-            % è¨ˆç®—æ–¹å·®ä¸¦é™¤ä»¥æ™‚æ®µé•·åº¦ (300) é€²è¡Œæ­¸ä¸€åŒ–
             raw_variance = var(segment);
-            var_history(k) = raw_variance / window_sec;
+            var_history(k) = raw_variance / window_sec; % °£¥H 180 Âk¤@¤Æ
         else
-            var_history(k) = var(detrended_bpm) / window_sec;
+            var_history(k) = 0;
         end
     end
 end
