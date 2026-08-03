@@ -19,19 +19,22 @@ p = inputParser;
 addRequired(p, 'amp_signal');
 addRequired(p, 'Fs');
 % 滑動窗口長度 (秒)：翻身一般持續 1.5 ~ 5 秒，預設用 3 秒
-addParameter(p, 'WinSec', 3); 
+addParameter(p, 'WinSec', 6); 
 % 判定為翻身的標準差閾值 (因輸入已 z-score，預設大於 0.8 代表劇烈波動)
-addParameter(p, 'ThreshStd', 0.8); 
+addParameter(p, 'ThreshStd', 0.6); 
 % 最小事件間隔 (秒)：小於此間隔的兩個動作會被合併為同一次翻身
-addParameter(p, 'MinMergeSec', 4);
+addParameter(p, 'MinMergeSec', 3);
 % 最小事件持續時間 (秒)：過短的突波（如 < 0.8 秒）視為雜訊剔除
 addParameter(p, 'MinDurationSec', 0.8);
+% 最大事件持續時間 (秒)：合併後若超過此長度則視為長時間干擾，直接刪除
+addParameter(p, 'MaxDurationSec', 12);
 
 parse(p, amp_signal, Fs, varargin{:});
 win_sec = p.Results.WinSec;
 thresh_std = p.Results.ThreshStd;
 min_merge_sec = p.Results.MinMergeSec;
 min_dur_sec = p.Results.MinDurationSec;
+max_dur_sec = p.Results.MaxDurationSec;
 
 N = length(amp_signal);
 time_axis = (0:N-1)' / Fs;
@@ -83,15 +86,22 @@ for i = 1:length(starts)-1
 end
 merged_ends = [merged_ends; ends(end)];
 
-% 步驟 B: 過濾持續時間太短的事件
+% 步驟 B: 過濾事件長度
+% 保留：MinDurationSec <= duration <= MaxDurationSec
 final_starts = [];
 final_ends = [];
+
 for i = 1:length(merged_starts)
+
     dur = (merged_ends(i) - merged_starts(i)) / Fs;
-    if dur >= min_dur_sec
+
+    if dur >= min_dur_sec && dur <= max_dur_sec
         final_starts = [final_starts; merged_starts(i)];
         final_ends = [final_ends; merged_ends(i)];
+    elseif dur > max_dur_sec
+        fprintf('刪除事件：%.1f 秒 (超過 %.1f 秒)\n', dur, max_dur_sec);
     end
+
 end
 
 %% 5. 整理輸出事件
