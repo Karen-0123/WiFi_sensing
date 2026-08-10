@@ -1,20 +1,10 @@
- function featureTable = export_sleep_features(bpm_deviation, var_history, csv_filename, seg_start_times, seg_end_times, wake_sleep)
+function featureTable = export_sleep_features(bpm_deviation, var_history, num_events, csv_filename, seg_start_times, seg_end_times, wake_sleep)
 % EXPORT_SLEEP_FEATURES 將睡眠特徵整合為 MATLAB Table 並匯出為乾淨的 CSV 檔
-%
-% [輸入參數]
-%   bpm_deviation       : 呼吸頻率偏差向量 (1D array)
-%   var_history         : 呼吸變異度向量 (1D array)
-%   csv_filename        : (選填) 匯出的 CSV 檔名，預設為 'sleep_stage_features.csv'
-%   seg_start_times     : (選填) 開始時間 (datetime 物件)，預設為 2026-01-01 00:00:00
-%   wake_sleep          : (選填) 清醒/睡眠判定向量 (0/1)，若未提供則預設全為 0
-%
-% [輸出參數]
-%   featureTable  : 整合後的 MATLAB Table 物件
 
     % ---------------------------------------------------------------------
     % 1. 預設參數處理 (Default Arguments)
     % ---------------------------------------------------------------------
-    if nargin < 3 || isempty(csv_filename)
+    if nargin < 4 || isempty(csv_filename)
         csv_filename = 'sleep_stage_features.csv';
     end
 
@@ -23,7 +13,19 @@
     % ---------------------------------------------------------------------
     bpm_deviation = bpm_deviation(:); % 確保為 [N, 1] 欄向量
     var_history   = var_history(:);   % 確保為 [N, 1] 欄向量
-    num_segments = length(bpm_deviation); % 取得總片段數
+    num_segments  = length(bpm_deviation); % 取得總片段數
+
+    % 處理 num_events (若為 cell 則轉成數值欄向量)
+    if iscell(num_events)
+        num_events_mat = zeros(num_segments, 1);
+        for idx = 1:length(num_events)
+            if ~isempty(num_events{idx})
+                num_events_mat(idx) = num_events{idx};
+            end
+        end
+        num_events = num_events_mat;
+    end
+    num_events = num_events(:);
 
     % 檢查變異度特徵數量是否對齊
     if length(var_history) ~= num_segments
@@ -31,19 +33,29 @@
               length(var_history), num_segments);
     end
     
-    if nargin < 6 || isempty(wake_sleep)
+    % 處理 wake_sleep 判定欄位
+    if nargin < 7 || isempty(wake_sleep)
         Wake_Sleep = zeros(num_segments, 1);
     else
-        Wake_Sleep = wake_sleep(:);
+        if iscell(wake_sleep)
+            wake_sleep_mat = zeros(num_segments, 1);
+            for idx = 1:length(wake_sleep)
+                if ~isempty(wake_sleep{idx})
+                    wake_sleep_mat(idx) = wake_sleep{idx};
+                end
+            end
+            Wake_Sleep = wake_sleep_mat;
+        else
+            Wake_Sleep = wake_sleep(:);
+        end
     end
 
     % ---------------------------------------------------------------------
-    % 3. 計算 3 分鐘時間區間 (3-minute Window Timestamp Generation)
+    % 3. 計算 3 分鐘時間區間 (Timestamp Generation)
     % ---------------------------------------------------------------------
-    timeFormat = 'yyyy-mm-dd HH:MM:ss'; % 適合 Python pandas 讀取的格式
+    timeFormat = 'yyyy-mm-dd HH:MM:ss';
     
     if iscell(seg_start_times)
-        % 若傳入的是包含每個區段時間的 cell 陣列
         Start_Time = cell(num_segments, 1);
         End_Time   = cell(num_segments, 1);
         for k = 1:num_segments
@@ -51,7 +63,6 @@
             End_Time{k}   = datestr(seg_end_times{k}, timeFormat);
         end
     else
-        % 若只傳入單一 startTime (相容舊呼叫方式)
         t_start_dt = seg_start_times + (0:num_segments-1)' * minutes(3);
         t_end_dt   = t_start_dt + minutes(3);
         Start_Time = cellstr(datestr(t_start_dt, timeFormat));
@@ -64,18 +75,19 @@
     % ---------------------------------------------------------------------
     % 4. 建立 Table 與匯出無 Index 欄位的 CSV
     % ---------------------------------------------------------------------
-    % 核心 6 欄位：Start_Time, End_Time, Wake_Sleep, Breathing_Rate_Deviation, Breathing_Rate_Variability, Sleep_Stage
     featureTable = table(Start_Time, ...
                          End_Time, ...
                          Wake_Sleep, ...
                          bpm_deviation, ...
                          var_history, ...
+                         num_events, ...
                          Sleep_Stage, ...
                          'VariableNames', {'Start_Time', ...
                                            'End_Time', ...
                                            'Wake_Sleep', ...
                                            'Breathing_Rate_Deviation', ...
                                            'Breathing_Rate_Variability', ...
+                                           'Num_Events', ...
                                            'Sleep_Stage'});
     % 匯出 CSV
     try

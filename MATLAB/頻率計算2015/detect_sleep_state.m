@@ -46,10 +46,10 @@ motion_ratio = motion_time / total_time;
 
 %% 3. §PÂ_ Sleep / Awake
 
-if motion_ratio < motion_thresh && num_events <= event_thresh
-    state = 'Sleep';
+if motion_ratio < motion_thresh && num_events < event_thresh
+    state = 0;  %Sleep
 else
-    state = 'Awake';
+    state = 1;  %Awake
 end
 
 %% 4. ¦^¶Ç¯S¼x
@@ -69,7 +69,7 @@ fprintf('Total Time      : %.1f sec\n', total_time);
 fprintf('Motion Time     : %.1f sec\n', motion_time);
 fprintf('Motion Ratio    : %.3f\n', motion_ratio);
 fprintf('Motion Events   : %d\n', num_events);
-fprintf('State           : %s\n', state);
+fprintf('State           : %d\n', state);
 fprintf('========================================\n');
 
 end
