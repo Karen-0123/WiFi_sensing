@@ -3,10 +3,10 @@ clear; clc; close all;
 
 % 1. 環境設定與參數初始化
 % 設定資料路徑
-data_folder = 'C:\Users\fupei\Desktop\csi\data\sleep\sleep002_200hz_120min_0425';
+data_folder = 'D:\大學資料\sleep_dataset\sleep014_200hz_360min_0804';
 Fs_orig = 200;
 Fs_target = 40; 
-my_filename = 'subject002_features.csv'; % ML input
+my_filename = 'subject014_features.csv'; % ML input
 
 % 檢索資料夾內所有包含 'seg' 字眼的 .dat 檔案
 file_pattern = fullfile(data_folder, '*seg*.dat');
@@ -55,12 +55,12 @@ for k = 1:num_files
 end
 
 % 初始化全局變數
-all_bpm = []; all_time = []; 
+all_bpm_cell        = cell(1, num_files);
+all_time_cell       = cell(1, num_files);
 all_motion_flags = []; all_motion_time = [];
 current_offset = 0; % 時間偏移量（秒）
-all_90th_percentile = []; % 每個區段的 90th 百分位
-% 每個 Epoch 的 Sleep/Awake 結果
-all_state = cell(num_files,1);
+all_90th_percentile = NaN(1, num_files); % 每個區段的 90th 百分位
+processed_success   = false(1, num_files);
 
 set(0, 'DefaultFigureVisible', 'off'); % 迴圈中不顯示圖像以加速處理
 fprintf('開始處理 %d 個檔案區段 (加入體動偵測與訊號處理)...\n', num_files);
@@ -68,6 +68,15 @@ fprintf('開始處理 %d 個檔案區段 (加入體動偵測與訊號處理)...\n', num_files);
 %% 2. 核心訊號處理迴圈
 for i = 1:num_files
     filename = fullfile(data_folder, file_list(i).name);
+    
+    % 空檔檢查
+    file_info = dir(filename);
+    if isempty(file_info) || file_info.bytes == 0
+        fprintf('[預防跳過] 第 %d 個檔案 (%s) 為 0KB 空檔，自動標記為 NaN。\n', i, file_list(i).name);
+        current_offset = current_offset + (total_samples / Fs_target);
+        continue; % 第 i 位置預設就是 NaN，直接進入下一個檔案
+    end
+    
     try
         % 讀取 Intel 5300 CSI 原始數據
         [csi_matrix, timestamp_sec, ~] = read_intel5300_dat(filename);
@@ -76,16 +85,10 @@ for i = 1:num_files
         [csi_matrix, t_uniform, gap_mask] = resample_csi_data(csi_matrix, timestamp_sec, Fs_target, Fs_orig);
         
         % 訊號預處理：計算幅度 (Amplitude) 與相位 (Phase)
-        [amp_pcs_norm, phase_pcs_norm] = process_csi_signal(csi_matrix);
-        
-        % ===== Sleep / Awake 判斷 =====
-        % 使用 PC1 振幅進行翻身偵測
-        [events, ~] = detect_rollover(amp_pcs_norm, Fs_target);
-        [state, ~] = detect_sleep_state(events,180);
-        all_state{i} = state;
+        [amp_f, phase_f] = process_csi_signal(csi_matrix);
         
         % 串流選擇：挑選呼吸特徵最明顯的子載波 (Subcarrier)
-        [~, best_sig, ~] = select_respiration_stream(amp_pcs_norm, phase_pcs_norm, Fs_target);
+        [~, best_sig, ~] = select_respiration_stream(amp_f, phase_f, Fs_target);
         
         % 呼吸峰值檢測
         [peak_idx, ~] = detect_respiration_peaks(best_sig, gap_mask, Fs_target);
@@ -95,20 +98,27 @@ for i = 1:num_files
         [seg_90th, bpm_seg, time_seg] = calculate_dynamic_bpm(peak_idx, total_samples, gap_mask, Fs_target);
         
         % 合併數據：將當前區段結果加入全局陣列
-        all_bpm = [all_bpm, bpm_seg];
-        all_time = [all_time, time_seg + current_offset];
-        all_90th_percentile = [all_90th_percentile, seg_90th];
+        all_bpm_cell{i}        = bpm_seg;
+        all_time_cell{i}       = time_seg + current_offset;
+        all_90th_percentile(i) = seg_90th;
         
         % 更新下一區段的起始時間偏移
         current_offset = current_offset + (total_samples / Fs_target);
+        processed_success(i) = true;
         clear csi_matrix amp_f phase_f best_sig;
     catch ME
         fprintf('警告：處理檔案 %s 時發生錯誤，跳過該區段。\n', file_list(i).name);
         fprintf('錯誤原因: %s\n', ME.message);
         fprintf('錯誤發生在第 %d 行\n', ME.stack(1).line);
+        
+        current_offset = current_offset + seg_duration;
     end
 end
 set(0, 'DefaultFigureVisible', 'on');
+
+% 迴圈結束後，一次性拉平展平
+all_bpm  = [all_bpm_cell{:}];
+all_time = [all_time_cell{:}];
 
 %% 3. 特徵提取與統計分析
 
@@ -121,17 +131,7 @@ bpm_deviation = abs(all_90th_percentile - baseline_bpm); % 2. 計算偏差
 
 % 3.3 建立 Table 與 CSV 匯出
 record_start = datetime(2026, 7, 27, 23, 0, 0); 
-featureTable = table();
-
-featureTable.StartTime = seg_start_times;
-featureTable.EndTime   = seg_end_times;
-
-featureTable.RespDeviation = bpm_deviation(:);
-featureTable.RespVar       = var_history(:);
-
-featureTable.State = all_state;
-
-writetable(featureTable,my_filename);
+featureTable = export_sleep_features(bpm_deviation, var_history, my_filename, seg_start_times, seg_end_times);
 
 % 建議在 MATLAB 算完特徵後，直接平鋪（Flatten）導出為標準 .csv 檔案（或是以 Pandas 載入的 DataFrame 格式）。
 % 欄位結構設計：
