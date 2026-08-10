@@ -1,4 +1,4 @@
-function featureTable = export_sleep_features(bpm_deviation, var_history, csv_filename, seg_start_times, seg_end_times, wake_sleep)
+ function featureTable = export_sleep_features(bpm_deviation, var_history, csv_filename, seg_start_times, seg_end_times, wake_sleep)
 % EXPORT_SLEEP_FEATURES 將睡眠特徵整合為 MATLAB Table 並匯出為乾淨的 CSV 檔
 %
 % [輸入參數]
