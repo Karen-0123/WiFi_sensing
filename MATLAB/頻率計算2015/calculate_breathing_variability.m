@@ -1,77 +1,148 @@
-function [var_history, var_time] = calculate_breathing_variability(all_bpm, all_time, window_sec, step_sec, target_epochs)
-    % 呼吸頻率變異性計算 (4階 Butter 濾波去趨勢 + 視窗歸一化)
-    % 輸入:
-    %    all_bpm       - 瞬時呼吸率數據 (BPM 序列)
-    %    all_time      - 對應的時間軸 (秒)
-    %    window_sec    - 視窗長度 (預設 180 秒)
-    %    step_sec      - 滑動步長 (預設 180 秒)
-    %    target_epochs - 目標 Epoch 數量 (可傳入數字如 102，或傳入檔案/特徵陣列)
-    
-    if nargin < 3 || isempty(window_sec), window_sec = 180; end
-    if nargin < 4 || isempty(step_sec), step_sec = 180; end
-    
-    % 強制將輸入轉為列向量 (N x 1)
-    all_bpm = all_bpm(:);
-    all_time = all_time(:);
-    
-    % 1. 數據插值處理 (填補 NaN 以便進行 Butterworth 濾波)
-    valid_idx = ~isnan(all_bpm) & all_bpm >= 5 & all_bpm <= 40;
-    if sum(valid_idx) < 10
-        var_history = [];
-        var_time = [];
-        return;
-    end
-    bpm_interp = interp1(all_time(valid_idx), all_bpm(valid_idx), all_time, 'pchip', 'extrap');
-    bpm_interp = bpm_interp(:);
-    
-    % 2. 巴特沃斯低通濾波器去趨勢 (fc = 0.1 Hz)
-    dt = mean(diff(all_time)); % 平均採樣間隔 (秒)
-    if dt <= 0, dt = 1; end
-    fs_bpm = 1 / dt; % 採樣率 (Hz)
-    
-    Wn = 0.1 / (fs_bpm / 2);
-    if Wn >= 1, Wn = 0.99; end
-    
-    % 使用 padarray 做邊界反射擴充，防止邊界失真
-    pad_len = min(100, length(bpm_interp)-1);
-    bpm_padded = padarray(bpm_interp, pad_len, 'replicate', 'both');
-    
-    % 使用 4 階低通濾波提取趨勢
-    [b, a] = butter(4, Wn, 'low');
-    trend_padded = filtfilt(b, a, bpm_padded);
-    
-    % 裁切回原始長度並去除趨勢
-    trend = trend_padded(pad_len+1 : end-pad_len);
-    detrended_bpm = bpm_interp - trend;
-    
-    % 3. 判斷總 Epoch 數量 (支援傳入數字純量或陣列/Cell)
-    if isscalar(target_epochs)
-        num_epochs = target_epochs;
-    else
-        num_epochs = length(target_epochs);
-    end
-    
-    var_history = zeros(num_epochs, 1);
-    var_time = zeros(num_epochs, 1);
-    t_start = all_time(1);
-    
-    % 4. 針對每個 Epoch 計算方差與歸一化
-    for k = 1:num_epochs
-        epoch_t_start = t_start + (k-1) * step_sec;
-        epoch_t_end   = t_start + k * step_sec;
-        
-        % 記錄該 Epoch 的中心時間戳 (方便繪圖對齊)
-        var_time(k) = (epoch_t_start + epoch_t_end) / 2;
-        
-        % 抓取該 180 秒 Epoch 區間內的數據點
-        in_win = (all_time >= epoch_t_start) & (all_time < epoch_t_end);
-        segment = detrended_bpm(in_win);
-        
-        if length(segment) >= 2
-            raw_variance = var(segment);
-            var_history(k) = raw_variance / window_sec; % 除以 180 歸一化
+function [var_history, var_time] = calculate_breathing_variability(all_bpm_cell, all_time_cell, num_files)
+
+    % 每個 seg 計算一個 breathing variability
+    %
+    % 缺失資料規則：
+    %   - NaN、BPM < 5、BPM > 40 視為缺失
+    %   - 缺失比例 > 20% -> 該 seg = NaN
+    %   - 缺失比例 <= 20% -> pchip 插值後計算 variability
+    %
+    % 輸入：
+    %   all_bpm_cell  - 每個 seg 的 BPM，cell array
+    %   all_time_cell - 每個 seg 的時間，cell array
+    %   num_files     - seg 數量
+    %
+    % 輸出：
+    %   var_history   - 每個 seg 一個 variability
+    %   var_time      - 每個 seg 的中心時間
+
+    window_sec = 180;
+    max_missing_ratio = 0.20;
+
+    var_history = NaN(num_files, 1);
+    var_time    = NaN(num_files, 1);
+
+    for i = 1:num_files
+
+        % ---------------------------------------------------------
+        % 取得目前 seg
+        % ---------------------------------------------------------
+        if isempty(all_bpm_cell{i}) || isempty(all_time_cell{i})
+            continue;
+        end
+
+        bpm  = all_bpm_cell{i}(:);
+        time = all_time_cell{i}(:);
+
+        % 時間與 BPM 長度不一致時，取共同長度
+        n = min(length(bpm), length(time));
+
+        if n < 2
+            continue;
+        end
+
+        bpm  = bpm(1:n);
+        time = time(1:n);
+
+        % ---------------------------------------------------------
+        % Epoch 中心時間
+        % ---------------------------------------------------------
+        var_time(i) = (time(1) + time(end)) / 2;
+
+        % ---------------------------------------------------------
+        % 判斷有效資料
+        % ---------------------------------------------------------
+        valid_idx = ~isnan(bpm) & bpm >= 5 & bpm <= 40;
+
+        % 沒有足夠有效資料
+        if sum(valid_idx) < 2
+            continue;
+        end
+
+        % ---------------------------------------------------------
+        % 計算缺失比例
+        % ---------------------------------------------------------
+        missing_ratio = 1 - sum(valid_idx) / length(valid_idx);
+
+        % 缺失 > 20%，直接 NaN
+        if missing_ratio > max_missing_ratio
+            continue;
+        end
+
+        % ---------------------------------------------------------
+        % 插值
+        % ---------------------------------------------------------
+        bpm_interp = interp1( ...
+            time(valid_idx), ...
+            bpm(valid_idx), ...
+            time, ...
+            'pchip', ...
+            'extrap');
+
+        bpm_interp = bpm_interp(:);
+
+        % ---------------------------------------------------------
+        % 計算採樣率
+        % ---------------------------------------------------------
+        dt = mean(diff(time));
+
+        if isempty(dt) || dt <= 0 || ~isfinite(dt)
+            continue;
+        end
+
+        fs_bpm = 1 / dt;
+
+        % ---------------------------------------------------------
+        % Butterworth 低通濾波
+        % ---------------------------------------------------------
+        Wn = 0.1 / (fs_bpm / 2);
+
+        if Wn >= 1
+            Wn = 0.99;
+        elseif Wn <= 0
+            Wn = 0.01;
+        end
+
+        % 邊界 padding
+        pad_len = min(100, length(bpm_interp)-1);
+
+        if pad_len > 0
+            bpm_padded = padarray( ...
+                bpm_interp, ...
+                pad_len, ...
+                'replicate', ...
+                'both');
         else
-            var_history(k) = 0;
+            bpm_padded = bpm_interp;
+        end
+
+        % Butterworth
+        [b, a] = butter(4, Wn, 'low');
+        trend_padded = filtfilt(b, a, bpm_padded);
+
+        % 還原長度
+        if pad_len > 0
+            trend = trend_padded( ...
+                pad_len+1 : end-pad_len);
+        else
+            trend = trend_padded;
+        end
+
+        % ---------------------------------------------------------
+        % 去趨勢
+        % ---------------------------------------------------------
+        detrended_bpm = bpm_interp - trend;
+
+        % ---------------------------------------------------------
+        % Variance
+        % ---------------------------------------------------------
+        if length(detrended_bpm) >= 2
+            raw_variance = var(detrended_bpm);
+
+            % 和原本相同，除以 180 秒
+            var_history(i) = raw_variance / window_sec;
+        else
+            var_history(i) = NaN;
         end
     end
 end
