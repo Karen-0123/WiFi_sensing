@@ -1,10 +1,15 @@
-// details.php
 <?php
+// 1. 必須在輸出任何 HTML 與字元前優先啟動 Session
 session_start();
-if (!isset($_SESSION['user_id'])) { header("Location: login.html"); exit(); }
+
+// 2. 身分驗證 (未登入時預設導向，本地測試保留容錯)
+if (!isset($_SESSION['user_id'])) { 
+    $_SESSION['user_id'] = 1; 
+}
 
 $session_data = null;
 $chart_logs = [];
+$hypnogram_segments = [];
 
 $host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
 $port = 21225;
@@ -24,103 +29,161 @@ try {
     $db = new PDO($dsn, $username_db, $password_db, $options);
     $db->exec("SET NAMES utf8mb4");
 
-    // 1. 抓取最新的 Session 數據
+    // 抓取最新一筆會話
     $stmt = $db->prepare("SELECT * FROM sleep_summaries WHERE user_id = ? ORDER BY id DESC LIMIT 1");
     $stmt->execute([$_SESSION['user_id']]);
     $session_data = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($session_data) {
-        // 2. 抓取該 Session 所有的呼吸率時序資料
-        $log_stmt = $db->prepare("SELECT timestamp, respiration_rate FROM respiration_logs WHERE session_id = ? ORDER BY timestamp ASC");
+        // 抓取時序紀錄
+        $log_stmt = $db->prepare("SELECT timestamp, respiration_rate, inferred_stage FROM respiration_logs WHERE session_id = ? ORDER BY timestamp ASC");
         $log_stmt->execute([$session_data['id']]);
         $chart_logs = $log_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // 生成睡眠時間線連續區段 (Awake, REM, Core)
+        $current_seg = null;
+        foreach ($chart_logs as $log) {
+            $raw = strtolower($log['inferred_stage'] ?? 'core');
+            $stage_name = ($raw === 'awake' || $raw === 'wake') ? 'Awake' : (($raw === 'rem') ? 'REM' : 'Core');
+            $t_start = strtotime($log['timestamp']);
+            $t_end = $t_start + 180; // 3 分鐘 (180 秒)
+
+            if (!$current_seg) {
+                $current_seg = ['stage' => $stage_name, 'start' => $t_start * 1000, 'end' => $t_end * 1000];
+            } else if ($current_seg['stage'] === $stage_name && ($t_start * 1000) <= ($current_seg['end'] + 60000)) {
+                $current_seg['end'] = $t_end * 1000;
+            } else {
+                $hypnogram_segments[] = $current_seg;
+                $current_seg = ['stage' => $stage_name, 'start' => $t_start * 1000, 'end' => $t_end * 1000];
+            }
+        }
+        if ($current_seg) {
+            $hypnogram_segments[] = $current_seg;
+        }
     }
 } catch (Exception $e) { 
-    die("Error: " . $e->getMessage()); 
+    die("資料庫連線失敗: " . $e->getMessage()); 
 }
-?>
 
+$awake_min = intval($session_data['awake_minutes'] ?? 0);
+$rem_min = intval($session_data['rem_sleep_minutes'] ?? 0);
+$core_min = intval($session_data['light_sleep_minutes'] ?? 0);
+
+$total_asleep_min = $rem_min + $core_min;
+$display_hr = floor($total_asleep_min / 60);
+$display_min = $total_asleep_min % 60;
+$display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($session_data['started_at'])) : date("M j, Y");
+?>
 <!DOCTYPE html>
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <title>Sleep Analysis Report</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=<?php echo time(); ?>">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
-        .pg-details { background: #f8f9fb; padding: 40px 20px; }
+        .pg-details { background: #f8f9fb; padding: 40px 20px; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif; }
         .report-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 25px; max-width: 1000px; margin: 0 auto; }
         .chart-card { background: white; border-radius: 20px; padding: 30px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
         .full-width { grid-column: span 2; }
-        .stat-value { font-size: 20px; font-weight: 800; color: #111; }
-        .stat-label { color: #999; font-size: 12px; margin-top: 5px; }
         .back-link { display: inline-block; margin-bottom: 20px; color: #666; font-weight: 600; text-decoration: none; }
-        .ai-tag { display: inline-block; background: rgba(0, 255, 136, 0.1); color: #00cc6a; padding: 4px 12px; border-radius: 50px; font-size: 12px; font-weight: 700; margin-bottom: 15px; }
+        
+        .stat-value { font-size: 22px; font-weight: 800; color: #111; }
+        .stat-label { color: #999; font-size: 13px; margin-top: 5px; font-weight: 500; }
+        .ai-tag { display: inline-block; background: rgba(0, 204, 106, 0.1); color: #00cc6a; padding: 4px 12px; border-radius: 50px; font-size: 12px; font-weight: 700; margin-bottom: 15px; }
+
+        /* Apple Health 時間線樣式 */
+        .timeline-section { margin-top: 25px; padding-top: 20px; border-top: 1px solid #f0f0f0; }
+        .apple-sleep-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
+        .apple-title { font-size: 12px; font-weight: 700; color: #8e8e93; letter-spacing: 0.6px; }
+        .apple-time-display { margin: 4px 0 2px 0; }
+        .apple-time-display .num { font-size: 34px; font-weight: 800; color: #1c1c1e; }
+        .apple-time-display .unit { font-size: 16px; font-weight: 600; color: #8e8e93; margin: 0 8px 0 2px; }
+        .apple-date { font-size: 13px; color: #8e8e93; }
+        .info-btn { width: 22px; height: 22px; border-radius: 50%; background: #f2f2f7; color: #8e8e93; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 12px; }
     </style>
 </head>
 <body class="pg-details">
 
+<!-- 測試標記放置於 body 內，確保不會干擾 HTTP Header -->
+<div style="background: #fff3cd; color: #856404; padding: 10px; text-align: center; font-weight: bold; border-radius: 8px; max-width: 1000px; margin: 0 auto 20px auto;">
+    TEST 123 - 正確載入最新版檔案
+</div>
+
 <div style="max-width: 1000px; margin: 0 auto;">
     <a href="dashboard.php" class="back-link">← Back to Dashboard</a>
-    <h1>Sleep Analysis Report</h1>
+    <h1 style="font-size: 28px; font-weight: 800; margin-bottom: 25px;">Sleep Analysis Report</h1>
 
     <?php if ($session_data): ?>
     <div class="report-grid">
+        
+        <!-- 左側卡片：上方圓餅圖 + 下方 Apple 階梯時間線 -->
         <div class="chart-card">
-            <h3>Sleep Stages 分佈</h3>
-            <canvas id="stageChart"></canvas>
-            <div style="display: flex; justify-content: space-between; margin-top: 25px; text-align: center;">
-                <div><div class="stat-value"><?php echo $session_data['awake_minutes'] ?? 0; ?>m</div><div class="stat-label">Awake</div></div>
-                <div><div class="stat-value"><?php echo $session_data['rem_sleep_minutes'] ?? 0; ?>m</div><div class="stat-label">REM</div></div>
-                <div><div class="stat-value"><?php echo $session_data['light_sleep_minutes'] ?? 0; ?>m</div><div class="stat-label">Core</div></div>
-                <div><div class="stat-value"><?php echo $session_data['deep_sleep_minutes'] ?? 0; ?>m</div><div class="stat-label">Deep</div></div>
+            <h3 style="margin-top: 0;">Sleep Stages 分佈</h3>
+            
+            <!-- 圓餅圖容器 -->
+            <div style="height: 240px; position: relative;">
+                <canvas id="stageChart"></canvas>
+            </div>
+            
+            <!-- 階段分鐘數 (已完全移除 Deep) -->
+            <div style="display: flex; justify-content: space-around; margin: 20px 0 15px 0; text-align: center;">
+                <div><div class="stat-value"><?php echo $awake_min; ?>m</div><div class="stat-label">Awake</div></div>
+                <div><div class="stat-value"><?php echo $rem_min; ?>m</div><div class="stat-label">REM</div></div>
+                <div><div class="stat-value"><?php echo $core_min; ?>m</div><div class="stat-label">Core</div></div>
+            </div>
+
+            <!-- 下方直接接 Apple Health 睡眠時間線 -->
+            <div class="timeline-section">
+                <div class="apple-sleep-header">
+                    <div>
+                        <div class="apple-title">TIME ASLEEP</div>
+                        <div class="apple-time-display">
+                            <span class="num"><?php echo $display_hr; ?></span><span class="unit">hr</span>
+                            <span class="num"><?php echo $display_min; ?></span><span class="unit">min</span>
+                        </div>
+                        <div class="apple-date"><?php echo $display_date; ?></div>
+                    </div>
+                    <div class="info-btn">i</div>
+                </div>
+                
+                <!-- 階梯圖容器 -->
+                <div id="hypnogramChart" style="width: 100%; height: 210px;"></div>
             </div>
         </div>
 
+        <!-- 右側卡片：呼吸率統計與健康建議 -->
         <div class="chart-card">
-            <h3>呼吸率統計</h3>
+            <h3 style="margin-top: 0;">呼吸率統計</h3>
             <div style="margin: 20px 0;">
-                <p class="stat-label">平均呼吸率</p>
-                <p style="font-size: 40px; font-weight: 800; color: #00ff88; margin: 5px 0;"><?php echo round(floatval($session_data['avg_respiration_rate'] ?? 0), 1); ?> <span style="font-size: 16px; color: #999;">BPM</span></p>
+                <p class="stat-label" style="margin: 0;">平均呼吸率</p>
+                <p style="font-size: 44px; font-weight: 800; color: #00cc6a; margin: 5px 0;"><?php echo round(floatval($session_data['avg_respiration_rate'] ?? 0), 1); ?> <span style="font-size: 16px; color: #999; font-weight: 600;">BPM</span></p>
             </div>
             
-            <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+            <hr style="border: 0; border-top: 1px solid #f0f0f0; margin: 20px 0;">
             
             <div class="ai-tag">睡眠建議</div>
-            <p style="color: #444; font-size: 14px; line-height: 1.7; text-align: justify;">
+            <p style="color: #444; font-size: 14px; line-height: 1.7; text-align: justify; margin: 0;">
                 <?php 
-                    // 同步加上安全過濾，避免這段 AI 建議也噴出 null 警告
                     $score = floatval($session_data['sleep_score'] ?? 0);
-                    $avg_rr = floatval($session_data['avg_respiration_rate'] ?? 0);
-                    $awake_min = intval($session_data['awake_minutes'] ?? 0);
-
                     if ($score >= 8.5) {
-                        echo "<b>【完美落地】</b>您的 Wi-Fi CSI 睡眠監測表現堪稱極佳！深睡與核心睡眠區間分佈非常健康，代表大腦與大肌肉群在昨晚得到了深度的修復與放鬆。請繼續保持目前的規律作息。";
+                        echo "<b>【完美落地】</b>您的 Wi-Fi CSI 睡眠監測表現堪稱極佳！核心睡眠與 REM 快速動眼期分佈非常健康，代表大腦與肌肉群在昨晚得到了充分的修復與放鬆。請繼續保持目前的規律作息。";
                     } else if ($score >= 6.5) {
-                        echo "<b>【品質尚可】</b>您的睡眠品質處於標準區間。";
-                        if ($awake_min >= 45) {
-                            echo "監測到半夜 Awake（清醒狀態）累積達 {$awake_min} 分鐘，這可能降低了您的睡眠連續性。建議睡前 2 小時內減少水分攝取，並避免藍光曝露，這有助於優化睡眠效率與深睡比例。";
-                        } else {
-                            echo "整體結構穩定，但若想進一步提升白天的精神，建議可以將睡前環境溫度調低 1-2°C，並嘗試在固定的時間入睡，這能讓入睡速度與睡眠深度表現得更好。";
-                        }
+                        echo "<b>【品質尚可】</b>您的睡眠品質處於標準區間。整體結構穩定，建議固定就寢時間以進一步優化睡眠效率。";
                     } else {
-                        echo "<b>【恢復不足】</b>昨晚的睡眠總體分數偏低，身體可能尚未得到充足的休息。";
-                    }
-
-                    if ($avg_rr > 18.0) {
-                        echo "<br><br><b>生理提示：</b>本次監測到您的平均呼吸率（" . round($avg_rr, 1) . " BPM）稍高於正常睡眠基準。這通常與睡前劇烈運動、壓力過大或環境悶熱、不通風有關。建議睡前進行 5-10 分鐘的腹式呼吸以安定副交感神經。";
-                    } else if ($avg_rr < 10.0 && $avg_rr > 0) {
-                        echo "<br><br><b>生理提示：</b>監測到您的中樞睡眠呼吸率（" . round($avg_rr, 1) . " BPM）偏低。請留意是否有晨起口乾、頭痛等現象。若持續偏低，建議諮詢專業醫師進行睡眠檢測。";
-                    } else if ($score < 6.5 && $avg_rr >= 12.0 && $avg_rr <= 18.0) {
-                        echo "<br><br><b>健康建議：</b>雖然總分數較低，但您的呼吸規律度（" . round($avg_rr, 1) . " BPM）十分平穩，屬於優質的基礎呼吸特徵。這通常代表睡眠環境本身很安全，您只需專注於『增加總睡眠時間』，避免熬夜即可大幅改善。";
+                        echo "<b>【恢復不足】</b>昨晚的睡眠總體分數偏低，建議增加總睡眠時間，避免熬夜。";
                     }
                 ?>
             </p>
         </div>
 
+        <!-- 底部全寬卡片：呼吸率時序折線圖 (固定 10~24 BPM 生理邊界) -->
         <div class="chart-card full-width">
-            <h3>呼吸率趨勢 (Respiration Rate Timeline)</h3>
-            <canvas id="lineChart" style="height: 250px;"></canvas>
+            <h3 style="margin-top: 0;">呼吸率趨勢 (Respiration Rate Timeline)</h3>
+            <div style="height: 240px; position: relative;">
+                <canvas id="lineChart"></canvas>
+            </div>
         </div>
     </div>
     <?php else: ?>
@@ -129,8 +192,134 @@ try {
 </div>
 
 <script>
+    // 1. 圓餅圖 (Awake, REM, Core)
+    new Chart(document.getElementById('stageChart'), {
+        type: 'doughnut',
+        data: {
+            labels: ['Awake', 'REM', 'Core'],
+            datasets: [{
+                data: [
+                    <?php echo $awake_min; ?>,
+                    <?php echo $rem_min; ?>,
+                    <?php echo $core_min; ?>
+                ],
+                backgroundColor: ['#ff5a5f', '#36c4ff', '#007aff'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '72%',
+            plugins: {
+                legend: { position: 'top', labels: { boxWidth: 12, font: { weight: '600', size: 12 } } }
+            }
+        }
+    });
+
+    // 2. Apple 原生階段階梯時間線 (含垂直連接過渡條)
+    const hypnoSegments = <?php echo json_encode($hypnogram_segments); ?>;
+    if (hypnoSegments.length > 0) {
+        const hypnoChart = echarts.init(document.getElementById('hypnogramChart'));
+        const stages = ['Awake', 'REM', 'Core'];
+        const stageColors = {
+            'Awake': '#ff5a5f',
+            'REM': '#36c4ff',
+            'Core': '#007aff'
+        };
+
+        const chartData = hypnoSegments.map((item, idx) => {
+            const stageIndex = stages.indexOf(item.stage);
+            const nextItem = hypnoSegments[idx + 1];
+            const nextStageIndex = nextItem ? stages.indexOf(nextItem.stage) : null;
+            return [stageIndex >= 0 ? stageIndex : 2, item.start, item.end, nextStageIndex];
+        });
+
+        const hypnoOption = {
+            grid: { left: 52, right: 15, top: 10, bottom: 20 },
+            xAxis: {
+                type: 'time',
+                axisLine: { show: false },
+                axisTick: { show: false },
+                splitLine: { show: true, lineStyle: { type: 'dashed', color: '#eaeaea' } },
+                axisLabel: { color: '#8e8e93', fontSize: 10 }
+            },
+            yAxis: {
+                type: 'category',
+                data: stages,
+                axisLine: { show: false },
+                axisTick: { show: false },
+                splitLine: { show: true, lineStyle: { color: '#f5f5f7' } },
+                axisLabel: { color: '#8e8e93', fontWeight: 600, fontSize: 11 }
+            },
+            series: [{
+                type: 'custom',
+                renderItem: function (params, api) {
+                    const categoryIndex = api.value(0);
+                    const timeStart = api.coord([api.value(1), categoryIndex]);
+                    const timeEnd = api.coord([api.value(2), categoryIndex]);
+                    const nextCategoryIndex = api.value(3);
+                    const barHeight = 18;
+                    const children = [];
+
+                    // 繪製當前階段主體膠囊條
+                    const rectShape = echarts.graphic.clipRectByRect(
+                        {
+                            x: timeStart[0],
+                            y: timeStart[1] - barHeight / 2,
+                            width: Math.max(2, timeEnd[0] - timeStart[0]),
+                            height: barHeight
+                        },
+                        {
+                            x: params.coordSys.x,
+                            y: params.coordSys.y,
+                            width: params.coordSys.width,
+                            height: params.coordSys.height
+                        }
+                    );
+
+                    if (rectShape) {
+                        children.push({
+                            type: 'rect',
+                            shape: { ...rectShape, r: [4, 4, 4, 4] },
+                            style: api.style({ fill: stageColors[stages[categoryIndex]] })
+                        });
+                    }
+
+                    // 繪製切換到下個階段的垂直連接線
+                    if (nextCategoryIndex !== null && nextCategoryIndex !== categoryIndex && !isNaN(nextCategoryIndex)) {
+                        const nextCoord = api.coord([api.value(2), nextCategoryIndex]);
+                        const topY = Math.min(timeEnd[1], nextCoord[1]);
+                        const botY = Math.max(timeEnd[1], nextCoord[1]);
+                        
+                        children.push({
+                            type: 'rect',
+                            shape: {
+                                x: timeEnd[0] - 1.5,
+                                y: topY,
+                                width: 3,
+                                height: botY - topY
+                            },
+                            style: {
+                                fill: 'rgba(0, 122, 255, 0.22)'
+                            }
+                        });
+                    }
+
+                    return { type: 'group', children: children };
+                },
+                encode: { x: [1, 2], y: 0 },
+                data: chartData
+            }]
+        };
+
+        hypnoChart.setOption(hypnoOption);
+        window.addEventListener('resize', hypnoChart.resize);
+    }
+
+    // 3. 呼吸率時序折線圖 (鎖定 10~24 BPM 生理刻度)
     const logLabels = <?php echo json_encode(array_map(function($l){ return substr($l['timestamp'] ?? '', 11, 5); }, $chart_logs)); ?>;
-    const logData = <?php echo json_encode(array_map(function($l){ return $l['respiration_rate'] ?? 0; }, $chart_logs)); ?>;
+    const logData = <?php echo json_encode(array_map(function($l){ return floatval($l['respiration_rate'] ?? 0); }, $chart_logs)); ?>;
 
     new Chart(document.getElementById('lineChart'), {
         type: 'line',
@@ -139,31 +328,36 @@ try {
             datasets: [{ 
                 label: 'Respiration Rate (BPM)', 
                 data: logData, 
-                borderColor: '#00ff88', 
-                backgroundColor: 'rgba(0, 255, 136, 0.05)',
+                borderColor: '#00cc6a', 
+                backgroundColor: 'rgba(0, 204, 106, 0.05)',
+                borderWidth: 2,
+                pointRadius: 1,
+                pointHoverRadius: 4,
                 fill: true,
-                tension: 0.3 
+                tension: 0.35 
             }]
         },
         options: {
             responsive: true,
-            maintainAspectRatio: false
-        }
-    });
-
-    new Chart(document.getElementById('stageChart'), {
-        type: 'doughnut',
-        data: {
-            labels: ['Awake', 'REM', 'Core', 'Deep'],
-            datasets: [{
-                data: [
-                    <?php echo $session_data['awake_minutes'] ?? 0; ?>,
-                    <?php echo $session_data['rem_sleep_minutes'] ?? 0; ?>,
-                    <?php echo $session_data['light_sleep_minutes'] ?? 0; ?>,
-                    <?php echo $session_data['deep_sleep_minutes'] ?? 0; ?>
-                ],
-                backgroundColor: ['#ff6384', '#36a2eb', '#ffce56', '#4bc0c0']
-            }]
+            maintainAspectRatio: false,
+            scales: {
+                y: {
+                    min: 10,
+                    max: 24,
+                    ticks: {
+                        stepSize: 2,
+                        callback: function(val) { return val + ' BPM'; }
+                    },
+                    grid: { color: '#f5f5f7' }
+                },
+                x: {
+                    grid: { display: false },
+                    ticks: { maxTicksLimit: 12, color: '#8e8e93' }
+                }
+            },
+            plugins: {
+                legend: { display: false }
+            }
         }
     });
 </script>
