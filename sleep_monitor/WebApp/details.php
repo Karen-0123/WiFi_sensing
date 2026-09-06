@@ -1,3 +1,4 @@
+// details.php
 <?php
 session_start();
 if (!isset($_SESSION['user_id'])) { header("Location: login.html"); exit(); }
@@ -88,7 +89,7 @@ try {
             <div class="ai-tag">睡眠建議</div>
             <p style="color: #444; font-size: 14px; line-height: 1.7; text-align: justify;">
                 <?php 
-                    // ✅ 同步加上安全過濾，避免這段 AI 建議也噴出 null 警告
+                    // 同步加上安全過濾，避免這段 AI 建議也噴出 null 警告
                     $score = floatval($session_data['sleep_score'] ?? 0);
                     $avg_rr = floatval($session_data['avg_respiration_rate'] ?? 0);
                     $awake_min = intval($session_data['awake_minutes'] ?? 0);
