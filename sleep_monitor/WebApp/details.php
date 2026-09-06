@@ -1,5 +1,8 @@
 <?php
+// 1. 必須在輸出任何 HTML 與字元前優先啟動 Session
 session_start();
+
+// 2. 身分驗證 (未登入時預設導向，本地測試保留容錯)
 if (!isset($_SESSION['user_id'])) { 
     $_SESSION['user_id'] = 1; 
 }
@@ -26,24 +29,24 @@ try {
     $db = new PDO($dsn, $username_db, $password_db, $options);
     $db->exec("SET NAMES utf8mb4");
 
-    // 1. 抓取最新一筆會話
+    // 抓取最新一筆會話
     $stmt = $db->prepare("SELECT * FROM sleep_summaries WHERE user_id = ? ORDER BY id DESC LIMIT 1");
     $stmt->execute([$_SESSION['user_id']]);
     $session_data = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($session_data) {
-        // 2. 抓取時序紀錄
+        // 抓取時序紀錄
         $log_stmt = $db->prepare("SELECT timestamp, respiration_rate, inferred_stage FROM respiration_logs WHERE session_id = ? ORDER BY timestamp ASC");
         $log_stmt->execute([$session_data['id']]);
         $chart_logs = $log_stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // 3. 生成睡眠時間線連續區段 (Awake, REM, Core)
+        // 生成睡眠時間線連續區段 (Awake, REM, Core)
         $current_seg = null;
         foreach ($chart_logs as $log) {
             $raw = strtolower($log['inferred_stage'] ?? 'core');
             $stage_name = ($raw === 'awake' || $raw === 'wake') ? 'Awake' : (($raw === 'rem') ? 'REM' : 'Core');
             $t_start = strtotime($log['timestamp']);
-            $t_end = $t_start + 180; // 3 分鐘間隔 (180 秒)
+            $t_end = $t_start + 180; // 3 分鐘 (180 秒)
 
             if (!$current_seg) {
                 $current_seg = ['stage' => $stage_name, 'start' => $t_start * 1000, 'end' => $t_end * 1000];
@@ -62,37 +65,9 @@ try {
     die("資料庫連線失敗: " . $e->getMessage()); 
 }
 
-// 容錯提取欄位 (兼顧 core_sleep_minutes 與 light_sleep_minutes)
 $awake_min = intval($session_data['awake_minutes'] ?? 0);
-$rem_min   = intval($session_data['rem_sleep_minutes'] ?? 0);
-$core_min  = intval($session_data['core_sleep_minutes'] ?? ($session_data['light_sleep_minutes'] ?? 0));
-
-// 保險機制：若 sleep_summaries 數值均為 0，直接從 respiration_logs 即時累計
-if ($awake_min == 0 && $rem_min == 0 && $core_min == 0 && !empty($chart_logs)) {
-    foreach ($chart_logs as $log) {
-        $st = strtolower($log['inferred_stage'] ?? 'core');
-        if ($st === 'awake' || $st === 'wake') {
-            $awake_min += 3;
-        } elseif ($st === 'rem') {
-            $rem_min += 3;
-        } else {
-            $core_min += 3;
-        }
-    }
-}
-
-// 平均呼吸率保險計算
-$avg_resp = floatval($session_data['avg_respiration_rate'] ?? 0);
-if ($avg_resp <= 0 && !empty($chart_logs)) {
-    $sum_rr = 0;
-    foreach ($chart_logs as $l) {
-        $sum_rr += floatval($l['respiration_rate'] ?? 0);
-    }
-    $avg_resp = round($sum_rr / count($chart_logs), 1);
-}
-if ($avg_resp <= 0) {
-    $avg_resp = 16.6;
-}
+$rem_min = intval($session_data['rem_sleep_minutes'] ?? 0);
+$core_min = intval($session_data['light_sleep_minutes'] ?? 0);
 
 $total_asleep_min = $rem_min + $core_min;
 $display_hr = floor($total_asleep_min / 60);
@@ -130,6 +105,11 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
     </style>
 </head>
 <body class="pg-details">
+
+<!-- 測試標記放置於 body 內，確保不會干擾 HTTP Header -->
+<div style="background: #fff3cd; color: #856404; padding: 10px; text-align: center; font-weight: bold; border-radius: 8px; max-width: 1000px; margin: 0 auto 20px auto;">
+    TEST 123 - 正確載入最新版檔案
+</div>
 
 <div style="max-width: 1000px; margin: 0 auto;">
     <a href="dashboard.php" class="back-link">← Back to Dashboard</a>
@@ -178,9 +158,7 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
             <h3 style="margin-top: 0;">呼吸率統計</h3>
             <div style="margin: 20px 0;">
                 <p class="stat-label" style="margin: 0;">平均呼吸率</p>
-                <p style="font-size: 44px; font-weight: 800; color: #00cc6a; margin: 5px 0;">
-                    <?php echo $avg_resp; ?> <span style="font-size: 16px; color: #999; font-weight: 600;">BPM</span>
-                </p>
+                <p style="font-size: 44px; font-weight: 800; color: #00cc6a; margin: 5px 0;"><?php echo round(floatval($session_data['avg_respiration_rate'] ?? 0), 1); ?> <span style="font-size: 16px; color: #999; font-weight: 600;">BPM</span></p>
             </div>
             
             <hr style="border: 0; border-top: 1px solid #f0f0f0; margin: 20px 0;">
@@ -189,7 +167,7 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
             <p style="color: #444; font-size: 14px; line-height: 1.7; text-align: justify; margin: 0;">
                 <?php 
                     $score = floatval($session_data['sleep_score'] ?? 0);
-                    if ($score >= 8.5 || ($score == 0 && $total_asleep_min > 200)) {
+                    if ($score >= 8.5) {
                         echo "<b>【完美落地】</b>您的 Wi-Fi CSI 睡眠監測表現堪稱極佳！核心睡眠與 REM 快速動眼期分佈非常健康，代表大腦與肌肉群在昨晚得到了充分的修復與放鬆。請繼續保持目前的規律作息。";
                     } else if ($score >= 6.5) {
                         echo "<b>【品質尚可】</b>您的睡眠品質處於標準區間。整體結構穩定，建議固定就寢時間以進一步優化睡眠效率。";
@@ -225,7 +203,7 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
                     <?php echo $rem_min; ?>,
                     <?php echo $core_min; ?>
                 ],
-                backgroundColor: ['#ff5a5f', '#36c4ff', '#f5b041'],
+                backgroundColor: ['#ff5a5f', '#36c4ff', '#007aff'],
                 borderWidth: 0
             }]
         },
@@ -339,7 +317,7 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
         window.addEventListener('resize', hypnoChart.resize);
     }
 
-    // 3. 呼吸率時序折線圖 (固定 10~24 BPM 生理邊界)
+    // 3. 呼吸率時序折線圖 (鎖定 10~24 BPM 生理刻度)
     const logLabels = <?php echo json_encode(array_map(function($l){ return substr($l['timestamp'] ?? '', 11, 5); }, $chart_logs)); ?>;
     const logData = <?php echo json_encode(array_map(function($l){ return floatval($l['respiration_rate'] ?? 0); }, $chart_logs)); ?>;
 
