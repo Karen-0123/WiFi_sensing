@@ -106,7 +106,7 @@ for i = 1:num_files
         % 更新下一區段的起始時間偏移
         current_offset = current_offset + 180;
         processed_success(i) = true;
-        clear csi_matrix amp_f phase_f best_sig;
+        %clear csi_matrix amp_f phase_f best_sig;
     catch ME
         fprintf('警告：處理檔案 %s 時發生錯誤，跳過該區段。\n', file_list(i).name);
         fprintf('錯誤原因: %s\n', ME.message);
@@ -120,12 +120,12 @@ set(0, 'DefaultFigureVisible', 'on');
 
 % 迴圈結束後，一次性拉平展平
 all_bpm  = [all_bpm_cell{:}];
-all_time = [all_time_cell{:}];
+%all_time = [all_time_cell{:}];
 
 %% 3. 特徵提取與統計分析
 
 % 3.1 每個 seg 計算一個呼吸變異度
-[var_history, var_time] = calculate_breathing_variability(all_bpm_cell, all_time_cell, num_files);
+[var_history, var_time, varience] = calculate_breathing_variability(all_bpm_cell, all_time_cell, num_files);
 
 % 3.2 呼吸頻率偏差
 baseline_bpm = calculate_nrem_baseline(all_bpm);
@@ -134,11 +134,15 @@ bpm_deviation = abs(all_90th_percentile - baseline_bpm);
 % 強制所有 feature 都變成 column vector
 bpm_deviation = bpm_deviation(:);
 var_history   = var_history(:);
+all_90th_percentile = all_90th_percentile(:);
+varience = varience(:);
 
 % 3.3 匯出
 featureTable = export_sleep_features(bpm_deviation, ...
                                      var_history, ...
                                      rollover_events, ...
+                                     all_90th_percentile, ...
+                                     varience, ...
                                      my_filename, ...
                                      seg_start_times, ...
                                      seg_end_times, ...

@@ -1,12 +1,11 @@
 function [true_peak_idx, true_peak_vals] = detect_respiration_peaks(signal, gap_mask, Fs_target)
     % 呼吸訊號的精細峰值偵測 (自適應相對突起度 + 丟包遮罩聯防)
     
-    % 【BUG 修正】調整為正確的參數數量檢查
     if nargin < 3, Fs_target = 40; end  
     N = length(signal);
     if N == 0, true_peak_idx = []; true_peak_vals = []; return; end
 
-    % 【策略優化】改用相對突起度 (Prominence)，只要高出局部低谷一定比例就納入候選
+    % 用相對突起度 (Prominence)，只要高出局部低谷一定比例就納入候選
     % 這樣可以完美保留絕對幅值低、但波形明顯的綠點波峰
     adaptive_prominence = 0.2 * std(signal); 
     [candidate_pks, candidate_locs] = findpeaks(signal, 'MinPeakProminence', adaptive_prominence);

@@ -1,7 +1,7 @@
 clear; clc; close all;
 
 % 設定基本參數 (已修正檔案路徑開頭引號)
-filename = 'C:\Users\fupei\Desktop\csi\data\sleep\sleep003_200hz_390min_0426\real_breathe_20260426_074740_seg109.dat';
+filename = 'E:\data0907_1.dat';
 Fs_orig = 200;
 Fs_target = 40;                     % 目標均勻採樣率 (Hz)，不寫預設20Hz
 

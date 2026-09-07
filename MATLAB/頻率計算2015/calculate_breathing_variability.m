@@ -1,5 +1,4 @@
-function [var_history, var_time] = calculate_breathing_variability(all_bpm_cell, all_time_cell, num_files)
-
+function [var_history, var_time, varience] = calculate_breathing_variability(all_bpm_cell, all_time_cell, num_files)
     % 每個 seg 計算一個 breathing variability
     %
     % 缺失資料規則：
@@ -21,6 +20,7 @@ function [var_history, var_time] = calculate_breathing_variability(all_bpm_cell,
 
     var_history = NaN(num_files, 1);
     var_time    = NaN(num_files, 1);
+    varience    = NaN(num_files, 1);
 
     for i = 1:num_files
 
@@ -138,9 +138,9 @@ function [var_history, var_time] = calculate_breathing_variability(all_bpm_cell,
         % ---------------------------------------------------------
         if length(detrended_bpm) >= 2
             raw_variance = var(detrended_bpm);
-
-            % 和原本相同，除以 180 秒
             var_history(i) = raw_variance / window_sec;
+            
+            varience(i) = var(bpm_interp); % 測試純變異度
         else
             var_history(i) = NaN;
         end

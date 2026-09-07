@@ -47,9 +47,9 @@ motion_ratio = motion_time / total_time;
 %% 3. §PÂ_ Sleep / Awake
 
 if motion_ratio < motion_thresh && num_events < event_thresh
-    state = 0;  %Sleep
+    state = 1;  %Sleep
 else
-    state = 1;  %Awake
+    state = 0;  %Awake
 end
 
 %% 4. ¦^¶Ç¯S¼x
