@@ -250,14 +250,34 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
             return [stageIndex >= 0 ? stageIndex : 0, item.start, item.end, nextStageIndex];
         });
 
+        // 依據整段資料動態計算最靠近的 3 小時整點刻度 (對齊 00:00, 03:00, 06:00, 09:00)
+        const minT = Math.min(...hypnoSegments.map(s => s.start));
+        const maxT = Math.max(...hypnoSegments.map(s => s.end));
+        const startDay = new Date(minT);
+        startDay.setHours(0, 0, 0, 0);
+        const dayBase = startDay.getTime();
+
         const hypnoOption = {
-            grid: { left: 52, right: 15, top: 20, bottom: 20 },
+            grid: { left: 52, right: 15, top: 20, bottom: 25 },
             xAxis: {
                 type: 'time',
+                min: minT - (minT % (3600 * 1000)),
+                max: maxT + (3600 * 1000 * 2),
+                splitNumber: 4,
                 axisLine: { show: false },
                 axisTick: { show: false },
                 splitLine: { show: true, lineStyle: { type: 'dashed', color: '#eaeaea' } },
-                axisLabel: { color: '#8e8e93', fontSize: 10 }
+                axisLabel: { 
+                    color: '#8e8e93', 
+                    fontSize: 11,
+                    formatter: function (value) {
+                        const d = new Date(value);
+                        const h = d.getHours();
+                        const period = h < 12 ? '上午' : '下午';
+                        const displayH = h % 12 === 0 ? 12 : h % 12;
+                        return `${period} ${displayH} 時`;
+                    }
+                }
             },
             yAxis: {
                 type: 'category',
