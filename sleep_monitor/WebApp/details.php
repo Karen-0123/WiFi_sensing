@@ -235,7 +235,8 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
     const hypnoSegments = <?php echo json_encode($hypnogram_segments); ?>;
     if (hypnoSegments.length > 0) {
         const hypnoChart = echarts.init(document.getElementById('hypnogramChart'));
-        const stages = ['Awake', 'REM', 'Core'];
+        // 類別陣列由下往上繪製：Core 在最底層、REM 在中、Awake 在最頂層
+        const stages = ['Core', 'REM', 'Awake'];
         const stageColors = {
             'Awake': '#ff5a5f',
             'REM': '#36c4ff',
@@ -246,11 +247,11 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
             const stageIndex = stages.indexOf(item.stage);
             const nextItem = hypnoSegments[idx + 1];
             const nextStageIndex = nextItem ? stages.indexOf(nextItem.stage) : null;
-            return [stageIndex >= 0 ? stageIndex : 2, item.start, item.end, nextStageIndex];
+            return [stageIndex >= 0 ? stageIndex : 0, item.start, item.end, nextStageIndex];
         });
 
         const hypnoOption = {
-            grid: { left: 52, right: 15, top: 10, bottom: 20 },
+            grid: { left: 52, right: 15, top: 20, bottom: 20 },
             xAxis: {
                 type: 'time',
                 axisLine: { show: false },
