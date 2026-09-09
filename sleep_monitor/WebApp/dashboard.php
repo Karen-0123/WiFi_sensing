@@ -50,9 +50,9 @@ try {
 </head>
 <body class="pg-dashboard flex-center-body">
     <div class="main-card card-wide">
-        <!-- 邊緣端與遠端主機狀態 -->
+        <!-- 邊緣端硬體連線狀態（維持單純的狀態綠燈） -->
         <div class="device-status">
-            <div class="status-dot"></div>Edge Node: SSH Monitoring Active
+            <div class="status-dot"></div>System Online
         </div>
 
         <div class="user-info-box">
@@ -61,7 +61,7 @@ try {
         </div>
 
         <?php if ($score_100 !== null): ?>
-            <!-- 系統後端模組運作架構標記 -->
+            <!-- 系統後端模組運作架構標記（單一專屬 Pipeline 膠囊） -->
             <div class="system-pipeline-badge">
                 <span class="pipeline-dot"></span>
                 Paramiko SSH/SFTP 遠端監測中 (Ubuntu ↔ Windows 演算法 Pipeline)
