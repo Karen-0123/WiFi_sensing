@@ -7,6 +7,12 @@ const switchText = document.getElementById('switchText');
 
 // 處理 Google 回傳
 function handleCredentialResponse(response) {
+    if (!response.credential) {
+        document.getElementById('message').innerText = "Google 登入授權失敗";
+        document.getElementById('message').style.color = "#ef4444";
+        return;
+    }
+    // 若後端尚未實作 JWT 解碼，可先提示或以 payload 傳送
     handleLogin({ action: 'google', credential: response.credential });
 }
 
@@ -54,6 +60,9 @@ document.getElementById('loginForm').onsubmit = function(e) {
 };
 
 function handleLogin(payload) {
+    // 防止重複點擊
+    if (submitBtn) submitBtn.disabled = true;
+
     // 發射 JSON 到 auth.php
     fetch('auth.php', { 
         method: 'POST', 
@@ -64,26 +73,29 @@ function handleLogin(payload) {
     })
     .then(r => {
         // 如果後端死機（例如 500 錯誤），直接抓出來
-        if (!r.ok) throw new Error("後端伺服器回應異常");
+        if (!r.ok) throw new Error("後端伺服器回應異常 (" + r.status + ")");
         return r.json();
     })
     .then(data => {
+        if (submitBtn) submitBtn.disabled = false;
+
         if(data.status === 'success') { 
             document.getElementById('message').innerText = "驗證成功，正在跳轉...";
             document.getElementById('message').style.color = "#10b981"; // 綠色
-            // 一秒後完美閃現進儀表板
+            // 稍作停頓後閃現進儀表板
             setTimeout(() => {
                 window.location.href = 'dashboard.php';
             }, 800);
         } else {
             // 真正把 Aiven 傳回來的錯誤（如：此 Email 已被註冊）吐在畫面的紅色格子裡！
-            document.getElementById('message').innerText = data.message;
+            document.getElementById('message').innerText = data.message || "帳號或密碼驗證失敗";
             document.getElementById('message').style.color = "#ef4444"; // 紅色
         }
     })
     .catch(err => {
+        if (submitBtn) submitBtn.disabled = false;
         console.error("連線發生錯誤:", err);
-        document.getElementById('message').innerText = "雲端 Aiven 連線逾時，請確認 Aiven 控制台是否開啟 0.0.0.0/0";
+        document.getElementById('message').innerText = "伺服器連線中斷或逾時，請稍後重試";
         document.getElementById('message').style.color = "#ef4444";
     });
 }

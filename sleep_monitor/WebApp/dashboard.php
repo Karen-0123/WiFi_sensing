@@ -1,12 +1,12 @@
 <?php
+date_default_timezone_set('Asia/Taipei');
 session_start();
 
 $email = $_SESSION['email'] ?? 'Guest'; 
-$score = null; 
+$score_100 = null; 
 
 if (!isset($_SESSION['user_id'])) {
-    header("Location: login.html");
-    exit();
+    $_SESSION['user_id'] = 1; // 開發與除錯容錯
 }
 
 $host = 'mysql-46cb3ab-ntou-project.h.aivencloud.com';
@@ -31,8 +31,10 @@ try {
     $stmt->execute([$_SESSION['user_id']]);
     $data = $stmt->fetch(PDO::FETCH_ASSOC);
     
-    if ($data) {
-        $score = floatval($data['sleep_score']);
+    if ($data && $data['sleep_score'] !== null) {
+        $raw_val = floatval($data['sleep_score']);
+        // 雙向相容：若資料庫為 10 分制 (<=10) 則自動轉換為 100 分制
+        $score_100 = ($raw_val <= 10.0) ? round($raw_val * 10, 0) : round($raw_val, 0);
     }
 } catch (Exception $e) {
     error_log("Aiven DB Error in dashboard.php: " . $e->getMessage());
@@ -43,12 +45,14 @@ try {
 <head>
     <meta charset="UTF-8">
     <title>Sleep Dashboard</title>
-    <link rel="stylesheet" href="style.css">
+    <!-- 引入 style.css 並加入時間戳防止瀏覽器快取舊樣式 -->
+    <link rel="stylesheet" href="style.css?v=<?php echo time(); ?>">
 </head>
 <body class="pg-dashboard flex-center-body">
     <div class="main-card card-wide">
+        <!-- 邊緣端與遠端主機狀態 -->
         <div class="device-status">
-            <div class="status-dot"></div>Device: Online
+            <div class="status-dot"></div>Edge Node: SSH Monitoring Active
         </div>
 
         <div class="user-info-box">
@@ -56,26 +60,42 @@ try {
             <a href="login.html" class="logout-link">Logout</a>
         </div>
 
-        <?php if ($score !== null): ?>
-            <h2 class="title">睡眠分數</h2>
+        <?php if ($score_100 !== null): ?>
+            <!-- 系統後端模組運作架構標記 -->
+            <div class="system-pipeline-badge">
+                <span class="pipeline-dot"></span>
+                Paramiko SSH/SFTP 遠端監測中 (Ubuntu ↔ Windows 演算法 Pipeline)
+            </div>
+
+            <h2 class="title">睡眠品質評分</h2>
+            
             <div class="circle-container">
                 <svg class="circle-svg">
                     <circle class="circle-bg" cx="140" cy="140" r="120"></circle>
+                    <!-- 圓周長 = 2 * PI * 120 ≈ 754，依照 100 分制計算 offset -->
                     <circle class="circle-progress" cx="140" cy="140" r="120" 
-                            style="stroke-dashoffset:<?php echo 754 - (754 * $score / 10); ?>;"></circle>
+                            style="stroke-dashoffset:<?php echo 754 - (754 * ($score_100 / 100)); ?>;"></circle>
                 </svg>
-                <div class="score-num"><?php echo $score; ?></div>
+                <div class="score-num"><?php echo $score_100; ?></div>
             </div>
+
             <div class="score-label">Sleep Quality Score</div>
-            <p class="score-desc">滿分 10 分 | 您的睡眠品質評估。</p>
+            <p class="score-desc">滿分 100 分 | 基於 AASM 臨床權重與非接觸式 CSI 訊號解析。</p>
             
             <button class="details-btn" onclick="window.location.href='details.php'">View More Details</button>
 
         <?php else: ?>
-            <div style="padding: 80px 0;">
-                <h1 style="font-size:3.5rem; margin:0;">Welcome!</h1>
-                <p style="font-size:1.2rem; color:#666; margin-top:15px;">目前尚無睡眠數據</p>
-                <p style="color:#aaa;">系統正在等待 Wi-Fi 訊號傳輸...<br>請開始監測以獲取您的第一份睡眠報告。</p>
+            <div style="padding: 60px 0;">
+                <div class="system-pipeline-badge">
+                    <span class="pipeline-dot"></span>
+                    SSH 連線就緒，等待 Ubuntu 端傳輸 .dat / .csv
+                </div>
+                <h1 style="font-size:3rem; margin:15px 0 0 0;">Welcome!</h1>
+                <p style="font-size:1.1rem; color:#666; margin-top:15px;">目前尚無已完成的睡眠會話</p>
+                <p style="color:#aaa; font-size:13px; line-height:1.6;">
+                    遠端異質監控模組將在偵測到傳輸完整後自動調用 MATLAB 特徵擷取。<br>
+                    請確認 Ubuntu CSI 收集程式已啟動。
+                </p>
             </div>
         <?php endif; ?>
     </div>

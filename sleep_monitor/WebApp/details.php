@@ -1,4 +1,5 @@
 <?php
+date_default_timezone_set('Asia/Taipei');
 session_start();
 if (!isset($_SESSION['user_id'])) { 
     $_SESSION['user_id'] = 1; 
@@ -250,20 +251,10 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
             return [stageIndex >= 0 ? stageIndex : 0, item.start, item.end, nextStageIndex];
         });
 
-        // 依據整段資料動態計算最靠近的 3 小時整點刻度 (對齊 00:00, 03:00, 06:00, 09:00)
-        const minT = Math.min(...hypnoSegments.map(s => s.start));
-        const maxT = Math.max(...hypnoSegments.map(s => s.end));
-        const startDay = new Date(minT);
-        startDay.setHours(0, 0, 0, 0);
-        const dayBase = startDay.getTime();
-
         const hypnoOption = {
-            grid: { left: 52, right: 15, top: 20, bottom: 25 },
+            grid: { left: 52, right: 25, top: 20, bottom: 25 },
             xAxis: {
                 type: 'time',
-                min: minT - (minT % (3600 * 1000)),
-                max: maxT + (3600 * 1000 * 2),
-                splitNumber: 4,
                 axisLine: { show: false },
                 axisTick: { show: false },
                 splitLine: { show: true, lineStyle: { type: 'dashed', color: '#eaeaea' } },

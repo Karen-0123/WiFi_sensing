@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <title>Sleep Monitoring - Sign In</title>
-    <link rel="stylesheet" href="style.css">
+    <!-- 加入版本號防止瀏覽器快取舊 CSS -->
+    <link rel="stylesheet" href="style.css?v=20260909">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="pg-login flex-center-body">
@@ -13,8 +14,9 @@
         
         <form id="loginForm">
             <div class="input-group">
-                <input type="email" name="username" placeholder="name@gmail.com" required>
-                <input type="password" name="password" placeholder="Password" required>
+                <!-- 預設帶入測試帳號方便展示與測試 -->
+                <input type="email" name="username" id="username" placeholder="test_user1@gmail.com" required>
+                <input type="password" name="password" id="password" placeholder="Password" required>
             </div>
             <button type="submit" class="black-btn" id="submitBtn">Login</button>
             <input type="hidden" id="action" value="login">
@@ -22,7 +24,11 @@
 
         <div class="divider">OR CONTINUE WITH</div>
         
-        <div id="g_id_onload" data-client_id="YOUR_ID" data-callback="handleCredentialResponse"></div>
+        <!-- Google 登入區塊 (若尚未設定 GCP Client ID 可先保留介面) -->
+        <div id="g_id_onload" 
+             data-client_id="YOUR_GOOGLE_CLIENT_ID_HERE.apps.googleusercontent.com" 
+             data-callback="handleCredentialResponse">
+        </div>
         <div class="g_id_signin" data-type="standard" data-width="320"></div>
         
         <p style="margin-top:25px; font-size:0.85rem;">
@@ -31,6 +37,6 @@
         </p>
         <div id="message" class="error-msg"></div>
     </div>
-    <script src="login.js"></script>
+    <script src="login.js?v=20260909"></script>
 </body>
 </html>

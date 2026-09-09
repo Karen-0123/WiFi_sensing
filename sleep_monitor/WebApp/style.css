@@ -109,6 +109,34 @@ a { text-decoration: none; }
 .pg-dashboard .device-status { position: absolute; top: 40px; left: 45px; display: flex; align-items: center; font-size: 14px; font-weight: 600; color: #333; }
 .pg-dashboard .status-dot { width: 10px; height: 10px; background: #00ff88; border-radius: 50%; margin-right: 10px; box-shadow: 0 0 10px rgba(0,255,136,0.5); }
 
+/* SSH 自動同步與觸發監控模組狀態膠囊 */
+.system-pipeline-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: #f0f4ff;
+    color: #0052cc;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.pipeline-dot {
+    width: 8px;
+    height: 8px;
+    background-color: #0052cc;
+    border-radius: 50%;
+    animation: pipelinePulse 2s infinite;
+}
+
+@keyframes pipelinePulse {
+    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 82, 204, 0.7); }
+    70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(0, 82, 204, 0); }
+    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 82, 204, 0); }
+}
+
 /* 右上角使用者與登出 */
 .pg-dashboard .user-info-box { position: absolute; top: 40px; right: 45px; text-align: right; }
 .pg-dashboard .user-account { color: #666; font-size: 13px; font-family: monospace; display: block; margin-bottom: 4px; }
@@ -116,7 +144,7 @@ a { text-decoration: none; }
 
 .pg-dashboard h2.title { font-size: 26px; font-weight: 800; margin-top: 20px; color: #111; }
 
-/* 圓環設計 */
+/* 圓環設計 (100 分制) */
 .circle-container { position: relative; width: 280px; height: 280px; margin: 40px auto; }
 .circle-svg { transform: rotate(-90deg); width: 280px; height: 280px; }
 .circle-bg { fill: none; stroke: #f2f2f2; stroke-width: 12; }
