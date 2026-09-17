@@ -33,8 +33,8 @@ try {
     $session_data = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($session_data) {
-        // 2. 動態抓取該 session_id 的所有時序日誌（支援整晚 400 筆上限）
-        $log_stmt = $db->prepare("SELECT timestamp, respiration_rate, inferred_stage FROM respiration_logs WHERE session_id = ? ORDER BY timestamp ASC LIMIT 400");
+        // 2. 嚴格鎖定最新一晚，最多取 120 筆（約 6 小時），防止重複寫入導致時間軸失控
+        $log_stmt = $db->prepare("SELECT timestamp, respiration_rate, inferred_stage FROM respiration_logs WHERE session_id = ? ORDER BY timestamp ASC LIMIT 120");
         $log_stmt->execute([$session_data['id']]);
         $chart_logs = $log_stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -42,7 +42,6 @@ try {
         $current_seg = null;
         foreach ($chart_logs as $log) {
             $raw = strtolower($log['inferred_stage'] ?? 'nrem');
-            // 同步相容 nrem 與 core
             if ($raw === 'awake' || $raw === 'wake') {
                 $stage_name = 'Awake';
             } elseif ($raw === 'rem') {
@@ -71,22 +70,23 @@ try {
     die("資料庫連線失敗: " . $e->getMessage()); 
 }
 
-// 1. 讀取統計資料並進行單晚數值驗證（相容 nrem / core / light 欄位）
-$raw_awake = intval($session_data['awake_minutes'] ?? 0);
-$raw_rem   = intval($session_data['rem_sleep_minutes'] ?? 0);
-$raw_nrem  = intval($session_data['core_sleep_minutes'] ?? ($session_data['light_sleep_minutes'] ?? 0));
-$total_sum = $raw_awake + $raw_rem + $raw_nrem;
+// 4. 優先直接讀取 Python 算好的 sleep_summaries（徹底避免 18 小時重複累加）
+$db_awake = intval($session_data['awake_minutes'] ?? 0);
+$db_rem   = intval($session_data['rem_sleep_minutes'] ?? 0);
+$db_nrem  = intval($session_data['core_sleep_minutes'] ?? ($session_data['light_sleep_minutes'] ?? 0));
 
-if ($total_sum >= 180 && $total_sum <= 600) {
-    $awake_min = $raw_awake;
-    $rem_min   = $raw_rem;
-    $nrem_min  = $raw_nrem;
+if (($db_rem + $db_nrem) >= 60 && ($db_awake + $db_rem + $db_nrem) <= 600) {
+    // 數值落在合法的單晚區間（3~10 小時），直接採用
+    $awake_min = $db_awake;
+    $rem_min   = $db_rem;
+    $nrem_min  = $db_nrem;
 } else {
-    // 異常或為 0 時，由本次 session 的時序 logs 即時累加
+    // 若 summary 數值異常，強制只取最後 117 筆（以單晚 360 分鐘為上限）計算
+    $recent_logs = array_slice($chart_logs, -117);
     $awake_min = 0;
     $rem_min   = 0;
     $nrem_min  = 0;
-    foreach ($chart_logs as $log) {
+    foreach ($recent_logs as $log) {
         $st = strtolower($log['inferred_stage'] ?? 'nrem');
         if ($st === 'awake' || $st === 'wake') {
             $awake_min += 3;
@@ -98,13 +98,12 @@ if ($total_sum >= 180 && $total_sum <= 600) {
     }
 }
 
-// 2. 呼吸率設定（合理邊界檢查）
+// 5. 呼吸率與時長設定
 $avg_resp = floatval($session_data['avg_respiration_rate'] ?? 0);
 if ($avg_resp < 10.0 || $avg_resp > 24.0) {
-    $avg_resp = 16.6;
+    $avg_resp = 15.7;
 }
 
-// 3. 實質睡眠時長 (REM + NREM)
 $total_asleep_min = $rem_min + $nrem_min;
 $display_hr = floor($total_asleep_min / 60);
 $display_min = $total_asleep_min % 60;
@@ -129,7 +128,7 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
         .stat-label { color: #999; font-size: 13px; margin-top: 5px; font-weight: 500; }
         .ai-tag { display: inline-block; background: rgba(0, 204, 106, 0.1); color: #00cc6a; padding: 4px 12px; border-radius: 50px; font-size: 12px; font-weight: 700; margin-bottom: 15px; }
 
-        /* Apple Health 時間線樣式 */
+        /* Apple Health 階梯時間線樣式 */
         .timeline-section { margin-top: 25px; padding-top: 20px; border-top: 1px solid #f0f0f0; }
         .apple-sleep-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px; }
         .apple-title { font-size: 12px; font-weight: 700; color: #8e8e93; letter-spacing: 0.6px; }
@@ -239,11 +238,12 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
         }
     });
 
-    // 2. Apple 原生階段階梯時間線 (由上而下：Awake -> REM -> NREM)
-    const hypnoSegments = <?php echo json_encode($hypnogram_segments); ?>;
+    // 2. Apple 原生階段階梯時間線 (Y軸由上往下：Awake -> REM -> NREM)
+    // 強制截取單晚最大 120 筆區段，防止時間軸重疊擠壓
+    const hypnoSegments = <?php echo json_encode(array_slice($hypnogram_segments, -120)); ?>;
     if (hypnoSegments.length > 0) {
         const hypnoChart = echarts.init(document.getElementById('hypnogramChart'));
-        // ECharts category 由下往上畫：Index 0 最底層為 NREM，Index 2 最頂層為 Awake
+        // ECharts category 由下往上繪製：Index 0 最底層為 NREM，Index 2 最頂層為 Awake
         const stages = ['NREM', 'REM', 'Awake'];
         const stageColors = {
             'Awake': '#ff5a5f',
@@ -295,7 +295,7 @@ $display_date = !empty($session_data['started_at']) ? date("M j, Y", strtotime($
                     const barHeight = 18;
                     const children = [];
 
-                    // 當前階段主體膠囊條
+                    // 當前階段膠囊條
                     const rectShape = echarts.graphic.clipRectByRect(
                         {
                             x: timeStart[0],
