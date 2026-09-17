@@ -60,40 +60,39 @@ def compute_clinical_score(total_min, rem_min, nrem_min, awake_min, motion_count
     return score_100, score_10
 
 def build_single_night_features(df_raw, feature_cols):
+    """建構完整冠軍模型特徵工程 (多尺度滑動視窗 + 階差關聯 + 週期特徵)"""
     df = df_raw.copy()
     dev_col = [c for c in ["Breathing_Rate_Deviation", "bpm_deviation_final", "RespDeviation"] if c in df.columns][0]
     var_col = [c for c in ["Breathing_Rate_Variability", "var_history_final", "RespVar"] if c in df.columns][0]
     has_events = "Num_Events" in df.columns
 
-    # 基礎特徵補齊（相容隊友模型）
-    if "Epoch_Index" not in df.columns:
-        df["Epoch_Index"] = np.arange(len(df))
-    if "Sleep_Progress" not in df.columns:
-        df["Sleep_Progress"] = np.linspace(0, 1, len(df))
-
-    # 若設定檔要求高維滾動特徵才進行延伸計算
-    if any("roll_" in c or "lag_" in c for c in feature_cols):
-        for w in [5, 10, 15]:
-            for col in [dev_col, var_col]:
-                df[f"{col}_roll_mean_{w}"] = df[col].rolling(w, min_periods=1).mean()
-                df[f"{col}_roll_std_{w}"] = df[col].rolling(w, min_periods=1).std().fillna(0.0)
-                df[f"{col}_roll_range_{w}"] = df[col].rolling(w, min_periods=1).max() - df[col].rolling(w, min_periods=1).min()
-            if has_events:
-                df[f"Num_Events_roll_sum_{w}"] = df["Num_Events"].rolling(w, min_periods=1).sum()
-
+    # 1. 多尺度滑動視窗統計 (5, 10, 15 Epochs)
+    for w in [5, 10, 15]:
         for col in [dev_col, var_col]:
-            for step in [1, 2, -1, -2]:
-                tag = f"lag_{step}" if step > 0 else f"lead_{abs(step)}"
-                df[f"{col}_{tag}"] = df[col].shift(step).bfill().ffill().fillna(0.0)
+            df[f"{col}_roll_mean_{w}"] = df[col].rolling(w, min_periods=1).mean()
+            df[f"{col}_roll_std_{w}"] = df[col].rolling(w, min_periods=1).std().fillna(0.0)
+            df[f"{col}_roll_range_{w}"] = df[col].rolling(w, min_periods=1).max() - df[col].rolling(w, min_periods=1).min()
+        if has_events:
+            df[f"Num_Events_roll_sum_{w}"] = df["Num_Events"].rolling(w, min_periods=1).sum()
 
-        for col in [dev_col, var_col]:
-            df[f"{col}_diff1"] = df[col].diff().fillna(0.0)
+    # 2. 領先/落後時序階差 (Lag-1, Lag-2, Lead-1, Lead-2)
+    for col in [dev_col, var_col]:
+        for step in [1, 2, -1, -2]:
+            tag = f"lag_{step}" if step > 0 else f"lead_{abs(step)}"
+            df[f"{col}_{tag}"] = df[col].shift(step).bfill().ffill().fillna(0.0)
 
-        df["Dev_x_Var"] = df[dev_col] * df[var_col]
-        df["Progress_x_Var"] = df["Sleep_Progress"] * df[var_col]
-        df["Progress_sin"] = np.sin(2 * np.pi * df["Sleep_Progress"] * 5)
-        df["Progress_cos"] = np.cos(2 * np.pi * df["Sleep_Progress"] * 5)
+    # 3. 差分與交互特徵
+    for col in [dev_col, var_col]:
+        df[f"{col}_diff1"] = df[col].diff().fillna(0.0)
+    df["Dev_x_Var"] = df[dev_col] * df[var_col]
 
+    # 4. 睡眠進度幾何轉換特徵
+    df["Sleep_Progress"] = np.linspace(0, 1, len(df))
+    df["Progress_x_Var"] = df["Sleep_Progress"] * df[var_col]
+    df["Progress_sin"] = np.sin(2 * np.pi * df["Sleep_Progress"] * 5)
+    df["Progress_cos"] = np.cos(2 * np.pi * df["Sleep_Progress"] * 5)
+
+    # 缺失欄位補零
     for c in feature_cols:
         if c not in df.columns:
             df[c] = 0.0
@@ -107,22 +106,17 @@ def sanitize_float(val, default=0.0):
 
 def run_import():
     print("==========================================================")
-    print("  WiFi CSI 睡眠監測系統 — 模型推論與資料庫寫入 (NREM 規範版)")
+    print("  WiFi CSI 睡眠監測系統 — 模型推論與資料庫寫入")
     print("==========================================================")
 
     if not os.path.exists(CSV_FILE_PATH):
         print(f"錯誤：找不到特徵檔案 {CSV_FILE_PATH}")
         return
 
-    # 1. 載入模型與配置檔
-    model_file = "sleep_model_teammate.pkl"
-    scaler_file = "scaler_teammate.pkl"
-    config_file = "model_config_teammate.json"
-
-    if not os.path.exists(model_file):
-        model_file = "sleep_model.pkl"
-        scaler_file = "scaler.pkl"
-        config_file = "model_config.json"
+    # 1. 載入自己訓練的最佳冠軍模型
+    model_file = "sleep_model.pkl"
+    scaler_file = "scaler.pkl"
+    config_file = "model_config.json"
 
     try:
         model = joblib.load(model_file)
@@ -130,10 +124,10 @@ def run_import():
         with open(config_file, "r", encoding="utf-8") as f:
             config = json.load(f)
 
-        feature_cols = config.get("feature_cols", [])
-        best_thresh = float(config.get("threshold", config.get("best_threshold", 0.50)))
-        print(f"成功載入模型: {config.get('model_name', config.get('model_type', 'LightGBM'))}")
-        print(f"使用特徵數: {len(feature_cols)} 維 | 分類門檻: {best_thresh}")
+        feature_cols = config["feature_cols"]
+        best_thresh = float(config.get("best_threshold", config.get("threshold", 0.50)))
+        print(f"成功載入最佳冠軍模型: {config.get('model_type', config.get('model_name', 'LightGBM'))}")
+        print(f"使用完整特徵數: {len(feature_cols)} 維 | 最佳調優門檻: {best_thresh}")
     except Exception as e:
         print(f"模型檔案載入失敗: {e}")
         return
@@ -180,8 +174,6 @@ def run_import():
 
     dev_col = [c for c in ["Breathing_Rate_Deviation", "bpm_deviation_final", "RespDeviation"] if c in raw_df.columns][0]
     var_col = [c for c in ["Breathing_Rate_Variability", "var_history_final", "RespVar"] if c in raw_df.columns][0]
-    
-    # 呼吸率原始欄位探測
     rr_col = [c for c in ["Respiration_Rate", "respiration_rate", "Breathing_Rate", "BPM", "bpm"] if c in raw_df.columns]
 
     raw_df[dev_col] = pd.to_numeric(raw_df[dev_col], errors="coerce").fillna(0.0)
@@ -211,14 +203,16 @@ def run_import():
     else:
         rem_probs = np.zeros(len(raw_df))
 
-    effective_thresh = max(0.15, float(np.percentile(rem_probs, 75))) if np.max(rem_probs) < best_thresh else best_thresh
+    # 動態自適應門檻保護
+    effective_thresh = max(0.12, float(np.percentile(rem_probs, 75))) if np.max(rem_probs) < best_thresh else best_thresh
 
     print("\n--- 機器學習推論機率診斷 ---")
     print(f"REM 預測機率最高值: {np.max(rem_probs):.4f}")
     print(f"REM 預測機率平均值: {np.mean(rem_probs):.4f}")
-    print(f"使用門檻: {effective_thresh:.2f}")
+    print(f"REM 預測機率 75百分位數: {np.percentile(rem_probs, 75):.4f}")
+    print(f"使用自適應門檻: {effective_thresh:.2f}")
 
-    # 分期命名：全面採用臨床與前端一致的 "nrem"
+    # 分期判定：全面統一為規範標籤 "nrem"
     final_stages = []
     for i in range(len(raw_df)):
         if raw_df["Wake_Sleep"].iloc[i] == 0:
@@ -238,15 +232,15 @@ def run_import():
 
     for i in range(len(raw_df)):
         stage_name = final_stages[i]
-        
-        # 呼吸率計算：優先使用原始欄位，否則由 deviation 推算
+
+        # 呼吸率提取
         if rr_col:
             rr = round(float(raw_df[rr_col[0]].iloc[i]), 1)
         else:
             dev_val = float(raw_df[dev_col].iloc[i])
             rr = round(15.5 + (dev_val * 0.4), 1)
 
-        # 臨床生理邊界約束 (10 ~ 24 BPM)
+        # 生理邊界約束 (10 ~ 24 BPM)
         if rr < 10.0: rr = 12.0
         if rr > 24.0: rr = 22.0
 
@@ -261,7 +255,7 @@ def run_import():
         stage_counts[stage_name] += 1
         total_rr += rr
 
-    # 6. 寫入 Aiven MySQL
+    # 6. 寫入 Aiven MySQL 資料庫
     try:
         conn = get_db_secure()
         with conn.cursor() as cursor:
@@ -297,7 +291,7 @@ def run_import():
             ]
             update_vals = [real_score, avg_rr, rem_min, awake_min, datetime.now()]
 
-            # 相容 core_sleep_minutes 或 light_sleep_minutes 欄位寫入 NREM 分鐘數
+            # 同步寫入 NREM 分鐘數
             if "core_sleep_minutes" in columns:
                 update_fields.append("core_sleep_minutes = %s")
                 update_vals.append(nrem_min)
@@ -318,7 +312,7 @@ def run_import():
         print(f" 平均呼吸率       : {avg_rr} BPM")
         print("-" * 65)
         print(f" 手錶真實標籤     : REM {int(watch_rem_epochs*step_minutes)}m | NREM {int(watch_nrem_epochs*step_minutes)}m | 清醒 {int(watch_awake_epochs*step_minutes)}m")
-        print(f" 模型推論結果     : REM {rem_min}m | NREM {nrem_min}m | 清醒 {awake_min}m")
+        print(f" 冠軍模型推論     : REM {rem_min}m | NREM {nrem_min}m | 清醒 {awake_min}m")
         print(f" 睡眠評分 (10分制): {real_score} 分 (百分制: {score_100} 分)")
         print("=" * 65)
         print(" 推論與同步完成！請至前端網頁刷新查看最新圖表！")
