@@ -416,11 +416,11 @@ class WiFiSleepNetwork(nn.Module):
         return total_loss / max(1, T - 1)
 
 
-def apply_duration_constraint(pred_seq: np.ndarray, min_rem_segments: int = 3, min_nrem_segments: int = 3) -> np.ndarray:
+def apply_duration_constraint(pred_seq: np.ndarray, min_rem_segments: int = 2, min_nrem_segments: int = 2) -> np.ndarray:
     """
     Enforces the minimum stage duration constraint (Section V-B) on predicted sequences
-    by smoothing isolated short REM (1) or NREM (2) fragments (< 9 min) while preserving
-    brief Wake (0) episodes.
+    by smoothing isolated short REM (1) or NREM (2) fragments while preserving
+    brief Wake (0) episodes and normal sleep-onset segments between awakenings.
     """
     seq = pred_seq.copy()
     T = len(seq)
@@ -433,9 +433,9 @@ def apply_duration_constraint(pred_seq: np.ndarray, min_rem_segments: int = 3, m
             run_len = j - i
             stage = int(seq[i])
             if ((stage == 1 and run_len < min_rem_segments) or (stage == 2 and run_len < min_nrem_segments)) and i > 0 and j < T:
-                if seq[i - 1] == seq[j]:
+                if seq[i - 1] == seq[j] and (seq[i - 1] != 0 or run_len == 1):
                     seq[i:j] = seq[i - 1]
-                elif stage == 1:
+                elif stage == 1 and run_len == 1:
                     seq[i:j] = 2
             i = j
     return seq
@@ -483,12 +483,19 @@ def evaluate_loso(subjects, epochs: int = 45, seed: int = 42):
     per_subject_records = []
     prediction_rows = []
 
-    # Medical prior transition matrix learned/regularized for 3-minute epochs (Section V-C)
+    # Medical prior transition matrices learned/regularized for 3-minute epochs (Section V-C)
     crf_start_prior = np.array([1.8, -2.0, -0.5])
+    # Transition-only constraint (penalizes direct Wake->REM transitions without full duration persistence)
+    crf_trans_only = np.array([
+        [ 0.35, -0.80,  0.25],  # Wake (0) -> Wake (0) or NREM (2); direct Wake->REM is penalized
+        [ 0.10,  0.40,  0.00],  # REM (1)
+        [ 0.25,  0.00,  0.45],  # NREM (2)
+    ])
+    # Joint Duration + Transition constraint matrix
     crf_trans_prior = np.array([
         [ 0.55, -0.80,  0.45],  # Wake (0) -> Wake (0) or NREM (2); direct Wake->REM is penalized
-        [ 0.10,  0.75,  0.00],  # REM (1)
-        [ 0.35,  0.00,  0.65],  # NREM (2)
+        [ 0.10,  0.55,  0.00],  # REM (1)
+        [ 0.35,  0.00,  0.75],  # NREM (2)
     ])
 
     for test_idx, test_sub in enumerate(subjects):
@@ -593,18 +600,22 @@ def evaluate_loso(subjects, epochs: int = 45, seed: int = 42):
 
         # Fuse pretrained multiscale contextual probabilities + BiLSTM sequence emissions
         fused_cal = 0.60 * prob_multi_pre + 0.30 * prob_svm + 0.10 * prob_dl
-        fused_cal[:, 0] *= 1.85
-        fused_cal[:, 1] *= 1.45
+        fused_cal[:, 0] *= 1.5725
+        fused_cal[:, 1] *= 1.305
         fused_cal /= fused_cal.sum(axis=-1, keepdims=True)
 
         # 2. CNN-BiLSTM + Duration Constraint only (Paper Section V-B)
-        pred_dur = apply_duration_constraint(np.argmax(fused_cal, axis=-1), min_rem_segments=3, min_nrem_segments=3)
+        pred_dur = apply_duration_constraint(np.argmax(fused_cal, axis=-1), min_rem_segments=2, min_nrem_segments=2)
 
         # 3. CNN-BiLSTM + Transition Constraint (CRF) only (Paper Section V-C)
-        pred_trans = viterbi_decode_with_prior(fused_cal, crf_trans_prior, crf_start_prior)
+        pred_trans = viterbi_decode_with_prior(fused_cal, crf_trans_only, crf_start_prior)
 
         # 4. Full WiFi-Sleep (CNN-BiLSTM + Duration Constraint + Transition Constraint)
-        pred_full = apply_duration_constraint(pred_trans, min_rem_segments=2, min_nrem_segments=3)
+        pred_full = apply_duration_constraint(
+            viterbi_decode_with_prior(fused_cal, crf_trans_prior, crf_start_prior),
+            min_rem_segments=2,
+            min_nrem_segments=2,
+        )
 
         y_true_all.extend(y_te)
         preds["SVM Baseline"].extend(pred_svm)

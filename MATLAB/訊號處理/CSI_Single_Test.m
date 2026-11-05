@@ -1,7 +1,7 @@
 clear; clc; close all;
 
 % 設定基本參數
-filename = "C:\Users\fupei\Desktop\csi\data\0629_test_video\test_video008.dat"%"C:\Users\fupei\Desktop\csi\data\sleep\sleep002_200hz_120min_0425\real_breathe_20260425_024249_seg16.dat";
+filename = "C:\Users\fupei\Desktop\csi\data\0629_test_video\test_video008.dat";
 Fs_orig = 200;
 Fs_target = 40;                     % 目標均勻採樣率 (Hz)
 
